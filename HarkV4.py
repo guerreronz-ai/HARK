@@ -64,6 +64,7 @@ def init_database():
     """Crea tablas y datos iniciales solo si no existen (seguro)"""
     with get_db() as conn:
         c = conn.cursor()
+        
         # Tablas
         c.execute('''CREATE TABLE IF NOT EXISTS branches (
             id SERIAL PRIMARY KEY,
@@ -96,6 +97,10 @@ def init_database():
             is_urgent INTEGER DEFAULT 0,
             branch_id INTEGER REFERENCES branches(id)
         )''')
+
+        # 🔥 AGREGAR COLUMNAS NUEVAS (seguro - no da error si ya existen)
+        c.execute("ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS marca TEXT;")
+        c.execute("ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS modelo TEXT;")
 
         # Datos iniciales solo si no existen
         c.execute("SELECT COUNT(*) as total FROM branches")
@@ -189,16 +194,21 @@ def login_page():
 def page_ingress():
     st.markdown("<h2>🚦 Vehicle Ingress</h2>", unsafe_allow_html=True)
     st.info(f"📍 Agency: {st.session_state.branch_name} | 👤 {st.session_state.full_name}")
+    
     with st.form("ingress_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             vin = st.text_input("VIN Number", key="vin_in")
             tag = st.text_input("TAG Number", key="tag_in")
+            marca = st.text_input("Marca (Brand)", key="marca_in", placeholder="Ej: Acura")
+        
+        with col2:
+            modelo = st.text_input("Modelo (Model)", key="modelo_in", placeholder="Ej: MDX")
             responsible_name = st.text_input("Technical/Sales Man (Name)", key="res_name_in")
             service = st.selectbox("Service", SERVICES_LIST)
         
-        with col2:
+        with col3:
             today = datetime.now().date()
             default_day = today if datetime.now().hour < 20 else today + timedelta(days=1)
             
@@ -215,24 +225,25 @@ def page_ingress():
             
             with get_db() as conn:
                 c = conn.cursor()
-                # Verificar duplicados solo en la agencia actual
                 c.execute("""
                     SELECT id FROM vehicles 
                     WHERE tag_number=%s AND service=%s AND branch_id=%s AND status='Pending'
                 """, (tag.strip().upper(), service, st.session_state.branch_id))
                 
                 if c.fetchone():
-                    st.error(f"❌ {tag.upper()} ya está en la cola para {service} en esta agencia")
+                    st.error(f"❌ {tag.upper()} ya está en la cola para {service}")
                     st.stop()
                 
                 c.execute("""
                     INSERT INTO vehicles 
-                    (vin_number, tag_number, required_day, required_time, service, notes, 
+                    (vin_number, tag_number, marca, modelo, required_day, required_time, service, notes, 
                      is_urgent, branch_id, reception_date, status, responsible_name)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """, (
                     vin.strip().upper() if vin else None,
                     tag.strip().upper(),
+                    marca.strip() if marca else None,
+                    modelo.strip() if modelo else None,
                     req_day.strftime("%Y-%m-%d"),
                     req_time.strftime("%H:%M"),
                     service,
@@ -254,17 +265,19 @@ def page_pending():
     with col1:
         search_term = st.text_input("🔍 Search by VIN or TAG Number", placeholder="Ej: ACURA0005")
     with col2:
-        st.button("Search") # Placeholder para lógica futura
+        st.button("Search") # Placeholder
 
     with get_db() as conn:
-        # FILTRO DE SEGURIDAD: Solo Admin ve todo, Nivel 1 y 2 ven su agencia
+        # FILTRO DE SEGURIDAD: Solo Admin ve todo
         where = "AND v.branch_id = %s " if st.session_state.level < 3 else ""
         params = (st.session_state.branch_id,) if st.session_state.level < 3 else ()
         
         c = conn.cursor()
+        # AGREGAMOS marca y modelo al SELECT
         c.execute(f"""
             SELECT id, tag_number, vin_number, service, reception_date, 
-                   required_day, required_time, is_urgent, responsible_name
+                   required_day, required_time, is_urgent, responsible_name,
+                   marca, modelo
             FROM vehicles v 
             WHERE v.status = 'Pending' {where}
             ORDER BY v.service, v.is_urgent DESC, v.reception_date ASC
@@ -289,6 +302,8 @@ def page_pending():
                 rows.append({
                     "TAG": v['tag_number'],
                     "VIN": v['vin_number'] or "-",
+                    "Marca": v['marca'] or "-",   # Nuevo campo
+                    "Modelo": v['modelo'] or "-", # Nuevo campo
                     "Responsible": v['responsible_name'] or "-",
                     "Required Day": v['required_day'],
                     "Required Time": v['required_time'],
@@ -301,6 +316,8 @@ def page_pending():
                 })
 
             df = pd.DataFrame(rows)
+            
+            # Estilo visual
             styled_df = df.style.apply(
                 lambda row: [f'background-color: #111; color: #eee; border-left: 5px solid {row["_color"]}'] * len(row),
                 axis=1
@@ -308,10 +325,15 @@ def page_pending():
 
             st.dataframe(styled_df, hide_index=True, use_container_width=True)
 
+            # Botones de entrega
             cols = st.columns(len(vehs))
             for i, v in enumerate(vehs):
                 with cols[i]:
-                    if st.button(f"✓ {v['tag_number']}", key=f"deliver_{v['id']}"):
+                    # Mostramos Marca/Modelo en el botón para facilitar la entrega
+                    label = f"✓ {v['tag_number']}"
+                    if v['marca']: label += f"\n({v['marca']} {v['modelo']})"
+                    
+                    if st.button(label, key=f"deliver_{v['id']}"):
                         with get_db() as conn2:
                             c2 = conn2.cursor()
                             c2.execute("""
@@ -340,10 +362,13 @@ def page_reports():
         st.rerun()
 
     with get_db() as conn:
+        # AGREGAMOS marca y modelo al SELECT
         query = """
             SELECT 
                 v.tag_number,
                 v.vin_number,
+                v.marca,
+                v.modelo,
                 v.service,
                 v.status,
                 v.reception_date,
@@ -357,8 +382,7 @@ def page_reports():
         conditions = []
         params = []
 
-        # 🔒 FILTRO DE SEGURIDAD: Solo el Admin (Nivel 3) ve todo
-        # Los Supervisores (2) y Agentes (1) ven solo su agencia
+        # Filtro de seguridad
         if st.session_state.level < 3:
             conditions.append("v.branch_id = %s")
             params.append(st.session_state.branch_id)
@@ -383,7 +407,6 @@ def page_reports():
 
         query += " ORDER BY v.reception_date DESC"
 
-        # Ejecución de la consulta
         df_all = pd.read_sql_query(query, conn, params=params if params else None)
 
     st.write(f"**Filas recuperadas:** {len(df_all)}")
@@ -392,13 +415,16 @@ def page_reports():
         st.warning("📭 No se encontraron vehículos.")
         return
 
-    # Solución Robusta: Convertir a minúsculas primero para asegurar compatibilidad
+    # Solución Robusta: Convertir a minúsculas primero
     df_display = df_all.copy()
     df_display.columns = [col.lower() for col in df_display.columns]
 
+    # Agregamos 'marca' y 'modelo' al renombrado
     df_display = df_display.rename(columns={
         'tag_number': 'TAG',
         'vin_number': 'VIN',
+        'marca': 'Brand',      # Nuevo
+        'modelo': 'Model',     # Nuevo
         'service': 'Service',
         'status': 'Status',
         'reception_date': 'Received',
@@ -425,6 +451,7 @@ def page_reports():
     st.subheader("📋 Detailed List")
     st.dataframe(df_display, use_container_width=True, hide_index=True)
 
+    # Export Excel (ahora incluirá las nuevas columnas automáticamente)
     st.subheader("💾 Export Data")
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
