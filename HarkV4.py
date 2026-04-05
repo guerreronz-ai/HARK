@@ -8,30 +8,41 @@ from contextlib import contextmanager
 from io import BytesIO
 import os
 
-# ==================== CONFIGURACIÓN VISUAL PROFESIONAL ====================
+# ==================== CONFIGURACIÓN VISUAL ====================
 st.set_page_config(
+    st.session_state.theme = "dark"
     page_title="HARK - Management System",
     layout="wide",
     page_icon="🦈",
     initial_sidebar_state="expanded"
 )
 
-# CSS - Diseño Oscuro Profesional
+# CSS Mejorado - Respeta modo claro/oscuro
 st.markdown("""
 <style>
-    .main { background-color: #0a0f1c; }
-    .stApp { background-color: #0a0f1c; }
+    /* Colores base según tema */
+    :root {
+        --primary-color: #00b4d8;
+    }
+    
+    /* Modo Oscuro (predeterminado y recomendado) */
+    .stApp[data-theme="dark"] {
+        background-color: #0a0f1c;
+    }
+    
+    /* Modo Claro */
+    .stApp[data-theme="light"] {
+        background-color: #f8fafc;
+    }
     
     h1, h2, h3 {
-        color: #00d4ff;
+        color: var(--primary-color);
         font-weight: 600;
-        letter-spacing: 0.5px;
     }
     
     /* Sidebar */
     .sidebar .sidebar-content {
         background-color: #111827;
-        border-right: 1px solid #1f2937;
     }
     
     /* Botones */
@@ -42,15 +53,11 @@ st.markdown("""
         height: 3.2em;
         font-weight: 600;
     }
-    .stButton>button:hover {
-        background: linear-gradient(90deg, #0096b8, #007a96);
-    }
     
-    /* Expander y contenedores */
+    /* Expander */
     .stExpander {
         border-radius: 12px;
         border: 1px solid #1f2937;
-        background-color: #111827;
     }
     
     /* Dataframes */
