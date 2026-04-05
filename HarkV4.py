@@ -334,41 +334,72 @@ def page_pending():
 def page_reports():
     st.markdown("<h2>📊 Reports & Statistics</h2>", unsafe_allow_html=True)
     st.subheader("📅 Date Filters")
+    
     col1, col2, col3, col4 = st.columns(4)
-    with col1: filter_type = st.selectbox("Filter by", ["Today", "Yesterday", "This Week", "Last Week", "This Month", "Last Month", "This Year", "Custom Range"])
-    with col2: start_date = st.date_input("Start Date", value=datetime.now().date() - timedelta(days=30)) if filter_type == "Custom Range" else None
-    with col3: end_date = st.date_input("End Date", value=datetime.now().date()) if filter_type == "Custom Range" else None
-    with col4: service_filter = st.selectbox("Service", ["All"] + SERVICES_LIST)
+    with col1: 
+        filter_type = st.selectbox("Filter by", ["Today", "Yesterday", "This Week", "Last Week", 
+                                               "This Month", "Last Month", "This Year", "Custom Range", "All Time"])
     
-    pg_filters = {
-        "Today": "reception_date::date = CURRENT_DATE",
-        "Yesterday": "reception_date::date = CURRENT_DATE - INTERVAL '1 day'",
-        "This Week": "reception_date::date >= DATE_TRUNC('week', CURRENT_DATE)",
-        "Last Week": "reception_date::date BETWEEN DATE_TRUNC('week', CURRENT_DATE - INTERVAL '7 days') AND DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '1 day'",
-        "This Month": "DATE_TRUNC('month', reception_date::timestamp) = DATE_TRUNC('month', CURRENT_DATE)",
-        "Last Month": "DATE_TRUNC('month', reception_date::timestamp) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')",
-        "This Year": "EXTRACT(YEAR FROM reception_date::timestamp) = EXTRACT(YEAR FROM CURRENT_DATE)",
-        "Custom Range": f"reception_date::date BETWEEN '{start_date}' AND '{end_date}'"
-    }
-    date_filter = pg_filters[filter_type]
-    title_period = f"{start_date} to {end_date}" if filter_type == "Custom Range" else filter_type
+    with col2: 
+        start_date = st.date_input("Start Date", value=datetime.now().date() - timedelta(days=30)) 
+        if filter_type != "Custom Range" and filter_type != "All Time":
+            start_date = None
+    with col3: 
+        end_date = st.date_input("End Date", value=datetime.now().date()) 
+        if filter_type != "Custom Range" and filter_type != "All Time":
+            end_date = None
+    with col4: 
+        service_filter = st.selectbox("Service", ["All"] + SERVICES_LIST)
     
+    # Construcción del filtro de fecha
+    if filter_type == "All Time":
+        date_filter = "1=1"  # Sin filtro de fecha
+        title_period = "All Time"
+    elif filter_type == "Custom Range":
+        date_filter = f"reception_date::date BETWEEN '{start_date}' AND '{end_date}'"
+        title_period = f"{start_date} to {end_date}"
+    else:
+        pg_filters = {
+            "Today": "reception_date::date = CURRENT_DATE",
+            "Yesterday": "reception_date::date = CURRENT_DATE - INTERVAL '1 day'",
+            "This Week": "reception_date::date >= DATE_TRUNC('week', CURRENT_DATE)",
+            "Last Week": "reception_date::date BETWEEN DATE_TRUNC('week', CURRENT_DATE - INTERVAL '7 days') AND DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '1 day'",
+            "This Month": "DATE_TRUNC('month', reception_date::timestamp) = DATE_TRUNC('month', CURRENT_DATE)",
+            "Last Month": "DATE_TRUNC('month', reception_date::timestamp) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')",
+            "This Year": "EXTRACT(YEAR FROM reception_date::timestamp) = EXTRACT(YEAR FROM CURRENT_DATE)",
+        }
+        date_filter = pg_filters[filter_type]
+        title_period = filter_type
+
     service_condition = "AND service = %s" if service_filter != "All" else ""
     params = (service_filter,) if service_filter != "All" else ()
+
     with get_db() as conn:
-        df_all = pd.read_sql_query(f"SELECT * FROM vehicles WHERE {date_filter} {service_condition} ORDER BY reception_date DESC", conn, params=params)
+        query = f"""
+            SELECT * FROM vehicles 
+            WHERE {date_filter} {service_condition}
+            ORDER BY reception_date DESC
+        """
+        df_all = pd.read_sql_query(query, conn, params=params)
+    
     if df_all.empty:
         st.warning("📭 No vehicles found for the selected period.")
         return
     
-    total, delivered, pending, urgent = len(df_all), len(df_all[df_all['status']=='Delivered']), len(df_all[df_all['status']=='Pending']), len(df_all[df_all['is_urgent']==1])
+    total = len(df_all)
+    delivered = len(df_all[df_all['status']=='Delivered'])
+    pending = len(df_all[df_all['status']=='Pending'])
+    urgent = len(df_all[df_all['is_urgent']==1])
+    
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
     kpi1.metric("Total Vehicles", total)
-    kpi2.metric("Delivered", delivered, f"{(delivered/total*100):.1f}%" if total>0 else "0%")
-    kpi3.metric("Pending", pending, f"{(pending/total*100):.1f}%" if total>0 else "0%")
+    kpi2.metric("Delivered", delivered, f"{(delivered/total*100):.1f}%" if total > 0 else "0%")
+    kpi3.metric("Pending", pending, f"{(pending/total*100):.1f}%" if total > 0 else "0%")
     kpi4.metric("Urgent", urgent)
     
     st.divider()
+    
+    # Gráficos
     col_chart1, col_chart2 = st.columns(2)
     with col_chart1: 
         st.subheader("📊 Vehicles by Service")
@@ -376,42 +407,37 @@ def page_reports():
         
     with col_chart2: 
         st.subheader("📈 Daily Trend")
-       
         df_all['reception_date'] = pd.to_datetime(df_all['reception_date'], errors='coerce')
         df_all = df_all.dropna(subset=['reception_date'])
         df_all['date'] = df_all['reception_date'].dt.date
         st.line_chart(df_all.groupby('date').size())
-        
+    
     st.subheader("📋 Status Distribution")
     st.bar_chart(df_all['status'].value_counts())
     
-    if delivered > 0:
-        st.subheader("⏱️ Average Delivery Time")
-        df_del = df_all[df_all['status']=='Delivered'].copy()
-        df_del['reception_date'] = pd.to_datetime(df_del['reception_date'], errors='coerce')
-        df_del['delivery_date'] = pd.to_datetime(df_del['delivery_date'], errors='coerce')
-        df_del = df_del.dropna(subset=['reception_date', 'delivery_date'])
-        df_del['hours'] = (df_del['delivery_date'] - df_del['reception_date']).dt.total_seconds()/3600
-        st.metric("Average Hours", f"{df_del['hours'].mean():.2f}")
-        st.subheader("By Service")
-        st.bar_chart(df_del.groupby('service')['hours'].mean().round(2))
-        
     st.divider()
     st.subheader("📋 Detailed List")
+    
     disp = df_all[['tag_number','vin_number','service','status','reception_date','delivery_date','is_urgent']].copy()
     disp.columns = ['TAG','VIN','Service','Status','Received','Delivered','Urgent']
     disp['Urgent'] = disp['Urgent'].map({1:'🚨 Yes', 0:'No'})
     st.dataframe(disp, use_container_width=True, hide_index=True)
     
+    # Export Excel
     st.subheader("💾 Export Data")
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        pd.DataFrame({'Metric':['Total','Delivered','Pending','Urgent','Period'],'Value':[total,delivered,pending,urgent,title_period]}).to_excel(writer, sheet_name='Summary', index=False)
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        pd.DataFrame({'Metric':['Total','Delivered','Pending','Urgent','Period'],
+                      'Value':[total, delivered, pending, urgent, title_period]}).to_excel(writer, sheet_name='Summary', index=False)
         df_all.to_excel(writer, sheet_name='All Vehicles', index=False)
-        df_all.groupby('service').agg({'id':'count','is_urgent':'sum'}).reset_index().rename(columns={'id':'Total','is_urgent':'Urgent'}).to_excel(writer, sheet_name='By Service', index=False)
-        df_all.groupby('status').size().reset_index(name='Count').to_excel(writer, sheet_name='By Status', index=False)
+    
     output.seek(0)
-    st.download_button(label="📥 Download Excel", data=output, file_name=f"HARK_{datetime.now().strftime('%Y%m%d')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    st.download_button(
+        label="📥 Download Excel", 
+        data=output, 
+        file_name=f"HARK_Report_{datetime.now().strftime('%Y%m%d')}.xlsx", 
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
  
 def page_users():
     st.markdown("<h2>👤 User Management</h2>", unsafe_allow_html=True)
