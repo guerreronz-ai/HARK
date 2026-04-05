@@ -335,86 +335,76 @@ def page_reports():
     st.markdown("<h2>📊 Reports & Statistics</h2>", unsafe_allow_html=True)
     st.subheader("🔎 Filtros Avanzados")
 
-    # Obtener agencias
-    with get_db() as conn:
-        c = conn.cursor()
-        c.execute("SELECT name FROM branches WHERE active=1 ORDER BY name")
-        branches = [row['name'] for row in c.fetchall()]
-        branches.insert(0, "All Agencies")
+    col1, col2, col3, col4 = st.columns(4)
 
-    col1, col2, col3 = st.columns(3)
     with col1:
-        period = st.selectbox("Período", ["All Time", "Today", "This Week", "This Month", "Custom Range"])
+        period = st.selectbox("Período", ["All Time", "Today", "This Week", "This Month"])
     with col2:
         status_filter = st.selectbox("Estado", ["All", "Pending", "Delivered"])
     with col3:
-        branch_filter = st.selectbox("Agencia", branches)
+        service_filter = st.selectbox("Servicio", ["All"] + SERVICES_LIST)
+    with col4:
+        branch_filter = st.selectbox("Agencia", ["All Agencies", "North Agency", "South Agency", "Central Agency"])
 
-    if period == "Custom Range":
-        col4, col5 = st.columns(2)
-        with col4:
-            start_date = st.date_input("Start Date", datetime.now().date() - timedelta(days=30))
-        with col5:
-            end_date = st.date_input("End Date", datetime.now().date())
-    else:
-        start_date = end_date = None
-
-    service_filter = st.selectbox("Service", ["All"] + SERVICES_LIST)
-
-    # ==================== CONSULTA SQL SIMPLIFICADA ====================
+    # Consulta simple y robusta
     with get_db() as conn:
-        if period == "All Time":
-            date_condition = "1=1"
-        elif period == "Today":
-            date_condition = "reception_date::date = CURRENT_DATE"
-        elif period == "This Week":
-            date_condition = "reception_date::date >= DATE_TRUNC('week', CURRENT_DATE)"
-        elif period == "This Month":
-            date_condition = "DATE_TRUNC('month', reception_date) = DATE_TRUNC('month', CURRENT_DATE)"
-        else:
-            date_condition = f"reception_date::date BETWEEN '{start_date}' AND '{end_date}'"
-
-        status_condition = ""
-        if status_filter == "Pending":
-            status_condition = "AND status = 'Pending'"
-        elif status_filter == "Delivered":
-            status_condition = "AND status = 'Delivered'"
-
-        branch_condition = ""
-        params = []
-        if branch_filter != "All Agencies":
-            branch_condition = "AND b.name = %s"
-            params.append(branch_filter)
-
-        if service_filter != "All":
-            service_condition = "AND v.service = %s"
-            params.append(service_filter)
-        else:
-            service_condition = ""
-
-        query = f"""
-            SELECT v.*, COALESCE(b.name, 'Global/Admin') as branch_name
+        query = """
+            SELECT 
+                v.tag_number as "TAG",
+                v.vin_number as "VIN",
+                v.service as "Service",
+                v.status as "Status",
+                v.reception_date as "Received",
+                v.delivery_date as "Delivered",
+                v.is_urgent as "Urgent",
+                COALESCE(b.name, 'Global/Admin') as "Agency"
             FROM vehicles v
             LEFT JOIN branches b ON v.branch_id = b.id
-            WHERE {date_condition} {status_condition} {branch_condition} {service_condition}
-            ORDER BY v.reception_date DESC
         """
+
+        conditions = []
+        params = []
+
+        if period == "Today":
+            conditions.append("v.reception_date::date = CURRENT_DATE")
+        elif period == "This Week":
+            conditions.append("v.reception_date >= DATE_TRUNC('week', CURRENT_DATE)")
+        elif period == "This Month":
+            conditions.append("DATE_TRUNC('month', v.reception_date) = DATE_TRUNC('month', CURRENT_DATE)")
+
+        if status_filter == "Pending":
+            conditions.append("v.status = 'Pending'")
+        elif status_filter == "Delivered":
+            conditions.append("v.status = 'Delivered'")
+
+        if service_filter != "All":
+            conditions.append("v.service = %s")
+            params.append(service_filter)
+
+        if branch_filter != "All Agencies":
+            conditions.append("b.name = %s")
+            params.append(branch_filter)
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        query += " ORDER BY v.reception_date DESC"
 
         df_all = pd.read_sql_query(query, conn, params=params if params else None)
 
     if df_all.empty:
-        st.error("No se encontraron vehículos. Prueba cambiando los filtros o selecciona 'All Time' + 'All'.")
-        st.info("Consejo: Prueba con 'All Time' y 'All' para ver todos los vehículos")
+        st.warning("📭 No se encontraron vehículos con los filtros seleccionados.")
+        st.info("Prueba con 'All Time' y 'All' para ver todos los registros.")
         return
 
     # KPIs
     total = len(df_all)
-    delivered = len(df_all[df_all['status']=='Delivered'])
-    pending = len(df_all[df_all['status']=='Pending'])
-    urgent = len(df_all[df_all['is_urgent']==1])
+    delivered = len(df_all[df_all['Status'] == 'Delivered'])
+    pending = len(df_all[df_all['Status'] == 'Pending'])
+    urgent = len(df_all[df_all['Urgent'] == 1])
 
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Total", total)
+    k1.metric("Total Vehicles", total)
     k2.metric("Delivered", delivered)
     k3.metric("Pending", pending)
     k4.metric("Urgent", urgent)
@@ -422,10 +412,10 @@ def page_reports():
     st.divider()
 
     st.subheader("📋 Detailed List")
-    disp = df_all[['tag_number','vin_number','service','status','reception_date','delivery_date','is_urgent','branch_name']].copy()
-    disp.columns = ['TAG','VIN','Service','Status','Received','Delivered','Urgent','Agency']
-    disp['Urgent'] = disp['Urgent'].map({1:'🚨 Yes', 0:'No'})
-    st.dataframe(disp, use_container_width=True, hide_index=True)
+    # Renombrar columnas para que se vean bonitas
+    display_df = df_all.copy()
+    display_df['Urgent'] = display_df['Urgent'].map({1: '🚨 Yes', 0: 'No'})
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     # Export
     st.subheader("💾 Export Data")
@@ -433,7 +423,12 @@ def page_reports():
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_all.to_excel(writer, sheet_name='Vehicles', index=False)
     output.seek(0)
-    st.download_button("📥 Download Excel", data=output, file_name="HARK_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    st.download_button(
+        label="📥 Download Excel", 
+        data=output, 
+        file_name=f"HARK_Report_{datetime.now().strftime('%Y%m%d')}.xlsx", 
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
  
 def page_users():
     st.markdown("<h2>👤 User Management</h2>", unsafe_allow_html=True)
