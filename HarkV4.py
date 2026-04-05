@@ -402,15 +402,36 @@ def page_pending():
                         st.rerun()
 
 def page_reports():
-    st.markdown("<h2>📊 Reports & Statistics</h2>", unsafe_allow_html=True)
+    st.markdown("\n📊 Reports & Statistics\n", unsafe_allow_html=True)
     st.subheader("🔎 Filtros Avanzados")
-    col1, col2, col3 = st.columns(3)
+
+    # Obtener agencias para el filtro (solo visible para Admin)
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("SELECT id, name FROM branches WHERE active=1 ORDER BY name")
+        branches = c.fetchall()
+
+    # Opciones de filtro por agencia
+    branch_opts = {"🌐 All Agencies": None}
+    for b in branches:
+        branch_opts[b['name']] = b['id']
+
+    # Layout de filtros (4 columnas)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         period = st.selectbox("Período", ["All Time", "Today", "This Week", "This Month"])
     with col2:
         status_filter = st.selectbox("Estado", ["All", "Pending", "Delivered"])
     with col3:
         service_filter = st.selectbox("Servicio", ["All"] + SERVICES_LIST)
+    with col4:
+        # Solo el Admin ve el selector de agencias
+        if st.session_state.level == 3:
+            selected_agency = st.selectbox("🏢 Agency", list(branch_opts.keys()))
+            branch_id_filter = branch_opts[selected_agency]
+        else:
+            # Niveles 1 y 2 siempre ven su propia agencia
+            branch_id_filter = st.session_state.branch_id
 
     if st.button("🔄 Actualizar Reportes", type="primary"):
         st.rerun()
@@ -428,17 +449,20 @@ def page_reports():
         conditions = []
         params = []
 
-        if st.session_state.level < 3:
+        # Aplicar filtro de agencia dinámicamente
+        if branch_id_filter is not None:
             conditions.append("v.branch_id = %s")
-            params.append(st.session_state.branch_id)
+            params.append(branch_id_filter)
 
+        # Filtros de tiempo
         if period == "Today":
             conditions.append("v.reception_date::date = CURRENT_DATE")
         elif period == "This Week":
-            conditions.append("v.reception_date >= DATE_TRUNC('week', CURRENT_DATE)")
+            conditions.append("v.reception_date::timestamp >= DATE_TRUNC('week', CURRENT_DATE)")
         elif period == "This Month":
-            conditions.append("DATE_TRUNC('month', v.reception_date) = DATE_TRUNC('month', CURRENT_DATE)")
+            conditions.append("DATE_TRUNC('month', v.reception_date::timestamp) = DATE_TRUNC('month', CURRENT_DATE)")
 
+        # Filtros de estado y servicio
         if status_filter != "All":
             conditions.append("v.status = %s")
             params.append(status_filter)
@@ -450,17 +474,17 @@ def page_reports():
             query += " WHERE " + " AND ".join(conditions)
 
         query += " ORDER BY v.reception_date DESC"
-
         cursor.execute(query, params if params else None)
         rows = cursor.fetchall()
-        
+
+        # Corrección del typo original: 'm odelo' -> 'modelo'
         df_all = pd.DataFrame(rows, columns=[
             'tag_number', 'vin_number', 'marca', 'modelo', 'service',
             'status', 'reception_date', 'delivery_date', 'is_urgent', 'agency'
         ])
 
     if df_all.empty:
-        st.warning("📭 No se encontraron vehículos.")
+        st.warning("📭 No se encontraron vehículos con los filtros aplicados.")
         return
 
     df_display = df_all.copy()
@@ -498,10 +522,9 @@ def page_reports():
     st.download_button(
         label="📥 Download Excel",
         data=output,
-        file_name=f"HARK_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        file_name=f"HARK_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-
 
 def page_users():
     st.markdown("<h2>👤 User Management</h2>", unsafe_allow_html=True)
