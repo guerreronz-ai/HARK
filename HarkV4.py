@@ -119,13 +119,17 @@ def get_db():
 def init_database():
     with get_db() as conn:
         c = conn.cursor()
+        
+        # 1. Crear tablas si no existen
         c.execute('''CREATE TABLE IF NOT EXISTS branches (
             id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, active INTEGER DEFAULT 1
         )''')
+        
         c.execute('''CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL,
             level INTEGER NOT NULL, full_name TEXT, branch_id INTEGER REFERENCES branches(id)
         )''')
+        
         c.execute('''CREATE TABLE IF NOT EXISTS vehicles (
             id SERIAL PRIMARY KEY, vin_number TEXT, tag_number TEXT NOT NULL,
             marca TEXT, modelo TEXT, required_day TEXT NOT NULL, required_time TEXT NOT NULL,
@@ -134,24 +138,43 @@ def init_database():
             is_urgent INTEGER DEFAULT 0, branch_id INTEGER REFERENCES branches(id)
         )''')
 
+        # 2. Insertar Agencias por defecto si no existen
         c.execute("SELECT COUNT(*) as total FROM branches")
         if c.fetchone()['total'] == 0:
             c.execute("INSERT INTO branches (name) VALUES ('North Agency'), ('South Agency'), ('Central Agency')")
 
+        # 3. Insertar Usuarios por defecto si no existen
         c.execute("SELECT COUNT(*) as total FROM users")
         if c.fetchone()['total'] == 0:
+            # Obtener IDs de agencias para asignar correctamente
+            c.execute("SELECT id, name FROM branches")
+            branches_map = {row['name']: row['id'] for row in c.fetchall()}
+            
+            north_id = branches_map.get('North Agency')
+            central_id = branches_map.get('Central Agency')
+            south_id = branches_map.get('South Agency')
+
             users_data = [
+                # --- ADMIN GLOBAL (Nivel 3) ---
                 ('SuperSU', hashlib.sha256('Krieger1'.encode()).hexdigest(), 3, 'Administrator', None),
-                ('Keri Kidd', hashlib.sha256('Usuario1*'.encode()).hexdigest(), 1, 'Keri Kidd', 1),
-                ('Fidel Sizemore', hashlib.sha256('Usuario2*'.encode()).hexdigest(), 1, 'Fidel Sizemore', 2),
-                ('Gianni Daly', hashlib.sha256('Usuario4*'.encode()).hexdigest(), 2, 'Gianni Daly', 1)
+                
+                # --- AGENTES (Nivel 1) ---
+                ('User1', hashlib.sha256('User123'.encode()).hexdigest(), 1, 'Agent North', north_id),
+                ('User2', hashlib.sha256('User123'.encode()).hexdigest(), 1, 'Agent Central', central_id),
+                ('User3', hashlib.sha256('User123'.encode()).hexdigest(), 1, 'Agent South', south_id),
+                
+                # --- SUPERVISORES (Nivel 2) ---
+                ('Super1', hashlib.sha256('Super123'.encode()).hexdigest(), 2, 'Supervisor North', north_id),
+                ('Super2', hashlib.sha256('Super123'.encode()).hexdigest(), 2, 'Supervisor Central', central_id),
+                ('Super3', hashlib.sha256('Super123'.encode()).hexdigest(), 2, 'Supervisor South', south_id),
             ]
+            
             c.executemany("""
                 INSERT INTO users (username, password, level, full_name, branch_id) 
                 VALUES (%s, %s, %s, %s, %s)
             """, users_data)
+        
         conn.commit()
-
 
 # ==================== CONSTANTES ====================
 SERVICES_LIST = [
