@@ -16,65 +16,57 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS Profesional - Modo Oscuro
+# ==================== CSS Profesional - MODO CLARO ====================
 st.markdown("""
-<style>
+    <style>
+    /* Fondo general suave */
     .stApp {
-        background-color: #0a0f1c !important;
+        background-color: #f4f6f9 !important;
     }
     
+    /* Títulos oscuros para contraste */
     h1, h2, h3 {
-        color: #00d4ff !important;
-        font-weight: 600;
+        color: #1e293b !important;
+        font-weight: 700;
     }
     
-    /* Sidebar */
+    /* Sidebar blanca y limpia */
     .sidebar .sidebar-content {
-        background-color: #111827 !important;
-        border-right: 1px solid #1f2937;
+        background-color: #ffffff !important;
+        border-right: 1px solid #e2e8f0 !important;
     }
     
-    /* Botones */
+    /* Botones modernos azules */
     .stButton>button {
-        background: linear-gradient(90deg, #00b4d8, #0096b8) !important;
+        background: linear-gradient(90deg, #2563eb, #1d4ed8) !important;
         color: white !important;
-        border-radius: 8px !important;
-        height: 3.2em !important;
+        border-radius: 6px !important;
         font-weight: 600 !important;
+        border: none !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     .stButton>button:hover {
-        background: linear-gradient(90deg, #0096b8, #007a96) !important;
+        background: linear-gradient(90deg, #1d4ed8, #1e40af) !important;
     }
     
-    /* Expander */
+    /* Expanders (Cajas desplegables) */
     .stExpander {
-        border-radius: 12px !important;
-        border: 1px solid #1f2937 !important;
-        background-color: #111827 !important;
-    }
-    
-    /* Dataframes */
-    .dataframe {
-        border-radius: 12px !important;
-        border: 1px solid #1f2937 !important;
-    }
-    
-    /* Métricas */
-    .stMetric {
-        background-color: #111827 !important;
+        background-color: #ffffff !important;
+        border: 1px solid #e2e8f0 !important;
         border-radius: 10px !important;
-        border: 1px solid #1f2937 !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
     }
     
-    /* Inputs */
+    /* Inputs y Selects */
     .stTextInput input, 
     .stSelectbox select, 
     .stTextArea textarea {
-        background-color: #1f2937 !important;
-        border: 1px solid #374151 !important;
-        color: #e2e8f0 !important;
+        background-color: #f8fafc !important;
+        border: 1px solid #cbd5e1 !important;
+        color: #0f172a !important;
+        border-radius: 6px !important;
     }
-</style>
+    </style>
 """, unsafe_allow_html=True)
 
 # ==================== BASE DE DATOS ====================
@@ -326,6 +318,7 @@ def page_pending():
         st.button("Search")
 
     with get_db() as conn:
+        # Lógica de visibilidad por rol
         where = "AND v.branch_id = %s " if st.session_state.level < 3 else ""
         params = (st.session_state.branch_id,) if st.session_state.level < 3 else ()
         
@@ -360,7 +353,7 @@ def page_pending():
                     "VIN": v['vin_number'] or "-",
                     "Marca": v.get('marca') or "-",
                     "Modelo": v.get('modelo') or "-",
-                    "Agency": v.get('agency_name') or "Global",
+                    "Agency": v.get('agency_name') or "-",  # Columna de Agencia
                     "Responsible": v['responsible_name'] or "-",
                     "Required Day": v['required_day'],
                     "Required Time": v['required_time'],
@@ -374,19 +367,22 @@ def page_pending():
 
             df = pd.DataFrame(rows)
             
-            styled_df = df.style.apply(
-                lambda row: [f'background-color: #111; color: #eee; border-left: 5px solid {row["_color"]}'] * len(row),
-                axis=1
-            ).hide(["_color", "_id"], axis=1)
+            # === ESTILO MODO CLARO: Fondo blanco, texto oscuro, borde izquierdo de color ===
+            def highlight_status(row):
+                return [f'background-color: #ffffff; color: #333333; border-left: 5px solid {row["_color"]}'] * len(row)
+
+            styled_df = df.style.apply(highlight_status, axis=1).hide(["_color", "_id"], axis=1)
 
             st.dataframe(styled_df, hide_index=True, use_container_width=True)
 
+            # Botones de entrega
             cols = st.columns(len(vehs))
             for i, v in enumerate(vehs):
                 with cols[i]:
                     label = f"✓ {v['tag_number']}"
                     if v.get('marca'):
                         label += f" ({v.get('marca')} {v.get('modelo') or ''})"
+                    
                     if st.button(label, key=f"deliver_{v['id']}"):
                         with get_db() as conn2:
                             c2 = conn2.cursor()
@@ -400,7 +396,6 @@ def page_pending():
                                  st.session_state.username, v['id']))
                         st.success(f"✅ {v['tag_number']} entregado")
                         st.rerun()
-
 def page_reports():
     st.markdown("\n📊 Reports & Statistics\n", unsafe_allow_html=True)
     st.subheader("🔎 Filtros Avanzados")
