@@ -66,6 +66,7 @@ def init_database():
     with get_db() as conn:
         c = conn.cursor()
         
+        # Crear tablas si no existen
         c.execute('''CREATE TABLE IF NOT EXISTS branches (
             id SERIAL PRIMARY KEY,
             name TEXT UNIQUE NOT NULL,
@@ -98,20 +99,27 @@ def init_database():
             is_urgent INTEGER DEFAULT 0,
             branch_id INTEGER REFERENCES branches(id)
         )''')
-        
-        # Seed data if empty
+
+        # === Seed data (solo si las tablas están vacías) ===
         c.execute("SELECT COUNT(*) as total FROM branches")
-        row = c.fetchone()
-        if row['total'] == 0:
-            c.executemany("INSERT INTO branches (name) VALUES (%s)", 
-                         [("North Agency",), ("South Agency",), ("Central Agency",)])
+        if c.fetchone()['total'] == 0:
+            c.execute("INSERT INTO branches (name) VALUES ('North Agency'), ('South Agency'), ('Central Agency')")
+            
+            # Contraseñas hasheadas (Usuario1*, Usuario2*, Krieger1)
             users_data = [
                 ('Keri Kidd', hashlib.sha256('Usuario1*'.encode()).hexdigest(), 1, 'Keri Kidd', 1),
                 ('Fidel Sizemore', hashlib.sha256('Usuario2*'.encode()).hexdigest(), 1, 'Fidel Sizemore', 2),
                 ('Gianni Daly', hashlib.sha256('Usuario4*'.encode()).hexdigest(), 2, 'Gianni Daly', 1),
                 ('SuperSU', hashlib.sha256('Krieger1'.encode()).hexdigest(), 3, 'Administrator', None)
             ]
-            c.executemany("INSERT INTO users (username, password, level, full_name, branch_id) VALUES (%s, %s, %s, %s, %s)", users_data)
+            c.executemany("""
+                INSERT INTO users (username, password, level, full_name, branch_id) 
+                VALUES (%s, %s, %s, %s, %s)
+            """, users_data)
+            
+            print("✅ Datos iniciales insertados correctamente")
+        
+        conn.commit()
 
 # ==================== CONSTANTS ====================
 SERVICES_LIST = [
