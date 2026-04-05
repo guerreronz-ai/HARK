@@ -346,18 +346,18 @@ def page_reports():
     with col4:
         branch_filter = st.selectbox("Agencia", ["All Agencies", "North Agency", "South Agency", "Central Agency"])
 
-    # Consulta simple y robusta
+    # === CONSULTA CORREGIDA Y SIMPLE ===
     with get_db() as conn:
         query = """
             SELECT 
-                v.tag_number as "TAG",
-                v.vin_number as "VIN",
-                v.service as "Service",
-                v.status as "Status",
-                v.reception_date as "Received",
-                v.delivery_date as "Delivered",
-                v.is_urgent as "Urgent",
-                COALESCE(b.name, 'Global/Admin') as "Agency"
+                v.tag_number,
+                v.vin_number,
+                v.service,
+                v.status,
+                v.reception_date,
+                v.delivery_date,
+                v.is_urgent,
+                COALESCE(b.name, 'Global/Admin') as agency
             FROM vehicles v
             LEFT JOIN branches b ON v.branch_id = b.id
         """
@@ -394,14 +394,19 @@ def page_reports():
 
     if df_all.empty:
         st.warning("📭 No se encontraron vehículos con los filtros seleccionados.")
-        st.info("Prueba con 'All Time' y 'All' para ver todos los registros.")
+        st.info("Prueba cambiando los filtros a 'All Time' y 'All'")
         return
 
+    # Renombrar columnas para que se vean bien en la tabla
+    df_display = df_all.copy()
+    df_display.columns = ['TAG', 'VIN', 'Service', 'Status', 'Received', 'Delivered', 'Urgent', 'Agency']
+    df_display['Urgent'] = df_display['Urgent'].map({1: '🚨 Yes', 0: 'No'})
+
     # KPIs
-    total = len(df_all)
-    delivered = len(df_all[df_all['Status'] == 'Delivered'])
-    pending = len(df_all[df_all['Status'] == 'Pending'])
-    urgent = len(df_all[df_all['Urgent'] == 1])
+    total = len(df_display)
+    delivered = len(df_display[df_display['Status'] == 'Delivered'])
+    pending = len(df_display[df_display['Status'] == 'Pending'])
+    urgent = len(df_display[df_display['Urgent'] == '🚨 Yes'])
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Total Vehicles", total)
@@ -410,18 +415,14 @@ def page_reports():
     k4.metric("Urgent", urgent)
 
     st.divider()
-
     st.subheader("📋 Detailed List")
-    # Renombrar columnas para que se vean bonitas
-    display_df = df_all.copy()
-    display_df['Urgent'] = display_df['Urgent'].map({1: '🚨 Yes', 0: 'No'})
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(df_display, use_container_width=True, hide_index=True)
 
-    # Export
+    # Export Excel
     st.subheader("💾 Export Data")
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_all.to_excel(writer, sheet_name='Vehicles', index=False)
+        df_all.to_excel(writer, sheet_name='All Vehicles', index=False)
     output.seek(0)
     st.download_button(
         label="📥 Download Excel", 
@@ -429,7 +430,7 @@ def page_reports():
         file_name=f"HARK_Report_{datetime.now().strftime('%Y%m%d')}.xlsx", 
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
- 
+
 def page_users():
     st.markdown("<h2>👤 User Management</h2>", unsafe_allow_html=True)
     
