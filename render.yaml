@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: hark
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run HarkV4.py --server.port $PORT --server.address 0.0.0.0
+    envVars:
+      - key: DB_HOST
+        fromDatabase:
+          name: hark-db
+          property: host
+      - key: DB_NAME
+        fromDatabase:
+          name: hark-db
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: hark-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: hark-db
+          property: password
+      - key: DB_PORT
+        fromDatabase:
+          name: hark-db
+          property: port
+
+databases:
+  - name: hark-db
+    plan: free
