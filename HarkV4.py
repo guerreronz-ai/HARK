@@ -8,17 +8,16 @@ from contextlib import contextmanager
 from io import BytesIO
 import os
 
-# ==================== CONFIGURATION ====================
+
 st.set_page_config(page_title="HARK - Management System", layout="wide", page_icon="🦈")
 
-# ==================== DATABASE MANAGEMENT ====================
+
 
 @contextmanager
 def get_db():
     """PostgreSQL connection manager - Compatible con local y Render"""
     conn = None
     try:
-        # === Prioridad 1: Variables de entorno (Render, Railway, etc.) ===
         if os.getenv("DB_HOST"):
             cfg = {
                 "HOST": os.getenv("DB_HOST"),
@@ -27,7 +26,7 @@ def get_db():
                 "PASSWORD": os.getenv("DB_PASSWORD"),
                 "PORT": int(os.getenv("DB_PORT", 5432)),
             }
-        # === Prioridad 2: st.secrets (solo para desarrollo local) ===
+       
         elif "DB" in st.secrets:
             cfg = st.secrets["DB"]
         else:
@@ -100,12 +99,12 @@ def init_database():
             branch_id INTEGER REFERENCES branches(id)
         )''')
 
-        # === Seed data (solo si las tablas están vacías) ===
+      
         c.execute("SELECT COUNT(*) as total FROM branches")
         if c.fetchone()['total'] == 0:
             c.execute("INSERT INTO branches (name) VALUES ('North Agency'), ('South Agency'), ('Central Agency')")
             
-            # Contraseñas hasheadas (Usuario1*, Usuario2*, Krieger1)
+           
             users_data = [
                 ('Keri Kidd', hashlib.sha256('Usuario1*'.encode()).hexdigest(), 1, 'Keri Kidd', 1),
                 ('Fidel Sizemore', hashlib.sha256('Usuario2*'.encode()).hexdigest(), 1, 'Fidel Sizemore', 2),
@@ -121,13 +120,12 @@ def init_database():
         
         conn.commit()
 
-# ==================== CONSTANTS ====================
+
 SERVICES_LIST = [
     "Service Wash", "Loaner", "Photo", "Full Detail the customer", 
     "Zaktek", "Show Room", "Full Detail for line", "Sold use car", "Sold new car"
 ]
 
-# ==================== TIME & COLOR LOGIC ====================
 def get_status_info(service, reception_str, req_day_str, req_time_str):
     try:
         rec_date = datetime.strptime(reception_str, "%Y-%m-%d %H:%M")
@@ -186,39 +184,79 @@ def login_page():
 def page_ingress():
     st.markdown("<h2>🚦 Vehicle Ingress</h2>", unsafe_allow_html=True)
     st.info(f"📍 Agency: **{st.session_state.branch_name}** | 👤 {st.session_state.full_name}")
+    
     with st.form("ingress_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
+        
         with col1:
             vin = st.text_input("VIN Number", key="vin_in")
             tag = st.text_input("TAG Number", key="tag_in")
             responsible_name = st.text_input("Technical/Sales Man (Name)", key="res_name_in")
             service = st.selectbox("Service", SERVICES_LIST)
+        
         with col2:
-            req_day = st.date_input("Required Day", min_value=datetime.now().date(), key="day_in")
-            req_time = st.time_input("Required Time", value=time(9, 0), key="time_in")
+         
+            today = datetime.now().date()
+            current_hour = datetime.now().hour
+            
+           
+            default_day = today if current_hour < 20 else today + timedelta(days=1)
+            
+            req_day = st.date_input(
+                "Required Day", 
+                value=default_day,      
+                min_value=today,        
+                key="day_in"
+            )
+            
+            req_time = st.time_input(
+                "Required Time", 
+                value=time(9, 0),     
+                key="time_in"
+            )
+            
             notes = st.text_area("Notes", placeholder="Observations...", key="notes_in")
+        
         urgent = st.checkbox("🚨 Mark as URGENT (Maximum Priority)")
+        
         if st.form_submit_button("💾 Save Vehicle", use_container_width=True, type="primary"):
             if not tag.strip():
                 st.error("❌ TAG Number is required")
                 st.stop()
+            
             with get_db() as conn:
                 c = conn.cursor()
-                c.execute("SELECT id FROM vehicles WHERE tag_number=%s AND service=%s AND branch_id=%s AND status='Pending'", 
-                          (tag.strip().upper(), service, st.session_state.branch_id))
+               
+                c.execute("""
+                    SELECT id FROM vehicles 
+                    WHERE tag_number=%s AND service=%s AND branch_id=%s AND status='Pending'
+                """, (tag.strip().upper(), service, st.session_state.branch_id))
+                
                 if c.fetchone():
                     st.error(f"❌ {tag.upper()} is already in the queue for {service}")
                     st.stop()
+                
                 c.execute("""
-                    INSERT INTO vehicles (vin_number, tag_number, required_day, required_time, service, 
-                                          notes, is_urgent, branch_id, reception_date, status, responsible_name)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    INSERT INTO vehicles 
+                    (vin_number, tag_number, required_day, required_time, service, 
+                     notes, is_urgent, branch_id, reception_date, status, responsible_name)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
-                    vin.strip().upper() if vin else None, tag.strip().upper(), req_day.strftime("%Y-%m-%d"),
-                    req_time.strftime("%H:%M"), service, notes.strip(), 1 if urgent else 0,
-                    st.session_state.branch_id, datetime.now().strftime("%Y-%m-%d %H:%M"), 'Pending', responsible_name.strip()
+                    vin.strip().upper() if vin else None, 
+                    tag.strip().upper(), 
+                    req_day.strftime("%Y-%m-%d"),
+                    req_time.strftime("%H:%M"), 
+                    service, 
+                    notes.strip(), 
+                    1 if urgent else 0,
+                    st.session_state.branch_id, 
+                    datetime.now().strftime("%Y-%m-%d %H:%M"), 
+                    'Pending', 
+                    responsible_name.strip()
                 ))
-            st.success(f"✅ {tag.upper()} registered in **{service}**")
+            
+            st.success(f"✅ {tag.upper()} registered in **{service}** for {req_day}")
+            st.rerun()  
 
 def page_pending():
     st.markdown("<h2>🏎️ Pending Vehicles</h2>", unsafe_allow_html=True)
@@ -338,7 +376,7 @@ def page_reports():
         
     with col_chart2: 
         st.subheader("📈 Daily Trend")
-        # 🔑 FIX: Convierte fechas de forma segura, ignora valores corruptos
+       
         df_all['reception_date'] = pd.to_datetime(df_all['reception_date'], errors='coerce')
         df_all = df_all.dropna(subset=['reception_date'])
         df_all['date'] = df_all['reception_date'].dt.date
@@ -378,7 +416,6 @@ def page_reports():
 def page_users():
     st.markdown("<h2>👤 User Management</h2>", unsafe_allow_html=True)
     
-    # Obtener usuarios
     try:
         with get_db() as conn:
             c = conn.cursor()
@@ -392,7 +429,7 @@ def page_users():
             users_data = c.fetchall()
             
             if users_data:
-                # Convertir a DataFrame
+                
                 df = pd.DataFrame(users_data, columns=['id', 'username', 'level', 'full_name', 'branch_name'])
                 st.subheader("Current Users")
                 st.dataframe(df, hide_index=True, use_container_width=True)
@@ -403,7 +440,6 @@ def page_users():
     
     st.divider()
     
-    # Resto del código para crear usuario...
     st.subheader("Create New User")
     with st.form("create_user_form"):
         c1, c2, c3 = st.columns(3)
@@ -433,7 +469,6 @@ def page_users():
     
     st.divider()
     
-    # Change Password section...
     st.subheader("Change Password")
     with st.form("change_pass_form"):
         try:
@@ -462,7 +497,6 @@ def page_users():
     
     st.divider()
     
-    # Delete User section...
     st.subheader("Delete User")
     with st.form("delete_user_form"):
         try:
