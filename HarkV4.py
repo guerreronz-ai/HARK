@@ -334,7 +334,7 @@ def page_ingress():
             st.rerun()
 
 def page_pending():
-    st.markdown("\n🏎️ Pending Vehicles\n", unsafe_allow_html=True)
+    st.markdown("<h2>🏎️ Pending Vehicles</h2>", unsafe_allow_html=True)
     
     # Mensaje superior según el nivel del usuario
     if st.session_state.level < 3:
@@ -344,44 +344,58 @@ def page_pending():
 
     col1, col2 = st.columns([3, 1])
     with col1:
-        search_term = st.text_input("🔍 Search by VIN or TAG Number", placeholder="Ej: ACURA0005")
+        search_term = st.text_input("🔍 Search by VIN or TAG Number", placeholder="Ej: ACURA0005", key="search_pending")
     with col2:
-        if st.button("Search"):
-            pass  # Puedes mejorar la búsqueda más adelante si lo deseas
+        search_clicked = st.button("🔍 Search")
 
     # ====================== CONSULTA A LA BASE DE DATOS ======================
     with get_db() as conn:
         c = conn.cursor()
         
         if st.session_state.level < 3:   # Nivel 1 y 2 → Solo su agencia
-            query = """
+            base_query = """
                 SELECT v.id, v.tag_number, v.vin_number, v.marca, v.modelo, b.name as agency_name,
                        v.service, v.reception_date, v.required_day, v.required_time, 
                        v.is_urgent, v.responsible_name
-                FROM vehicles v
+                FROM vehicles v 
                 LEFT JOIN branches b ON v.branch_id = b.id
                 WHERE v.status = 'Pending' 
                   AND v.branch_id = %s
-                ORDER BY v.service, v.is_urgent DESC, v.reception_date ASC
             """
-            params = (st.session_state.branch_id,)
+            # Agregar filtro de búsqueda si existe
+            if search_term:
+                base_query += " AND (v.vin_number ILIKE %s OR v.tag_number ILIKE %s)"
+                params = (st.session_state.branch_id, f"%{search_term}%", f"%{search_term}%")
+            else:
+                params = (st.session_state.branch_id,)
+            
+            base_query += " ORDER BY v.service, v.is_urgent DESC, v.reception_date ASC"
         else:                            # Nivel 3 (Admin) → Todas las agencias
-            query = """
+            base_query = """
                 SELECT v.id, v.tag_number, v.vin_number, v.marca, v.modelo, b.name as agency_name,
                        v.service, v.reception_date, v.required_day, v.required_time, 
                        v.is_urgent, v.responsible_name
                 FROM vehicles v
                 LEFT JOIN branches b ON v.branch_id = b.id
                 WHERE v.status = 'Pending'
-                ORDER BY b.name, v.service, v.is_urgent DESC, v.reception_date ASC
             """
-            params = ()
+            # Agregar filtro de búsqueda si existe
+            if search_term:
+                base_query += " AND (v.vin_number ILIKE %s OR v.tag_number ILIKE %s)"
+                params = (f"%{search_term}%", f"%{search_term}%")
+            else:
+                params = ()
+            
+            base_query += " ORDER BY b.name, v.service, v.is_urgent DESC, v.reception_date ASC"
 
-        c.execute(query, params)
+        c.execute(base_query, params)
         all_v = c.fetchall()
 
     if not all_v:
-        st.info("📭 No hay vehículos pendientes.")
+        if search_term:
+            st.warning(f"📭 No se encontraron vehículos pendientes que coincidan con '{search_term}'")
+        else:
+            st.info("📭 No hay vehículos pendientes.")
         return
 
     # ====================== AGRUPACIÓN POR SERVICIO ======================
@@ -447,7 +461,7 @@ def page_pending():
                                     handled_by = %s 
                                 WHERE id = %s
                             """, (datetime.now().strftime("%Y-%m-%d %H:%M"), 
-                                 st.session_state.username, v['id']))
+                                  st.session_state.username, v['id']))
                         st.success(f"✅ {v['tag_number']} entregado correctamente")
                         st.rerun()
 
