@@ -464,7 +464,6 @@ def page_pending():
                                   st.session_state.username, v['id']))
                         st.success(f"✅ {v['tag_number']} entregado correctamente")
                         st.rerun()
-
 def page_reports():
     # 🔒 Restricción de acceso - Solo niveles 2 y 3
     if st.session_state.level < 2:
@@ -472,7 +471,7 @@ def page_reports():
         st.info("Esta sección está disponible solo para Supervisores y Administradores.")
         st.stop()
 
-    st.markdown("\n📊 Reports & Statistics\n", unsafe_allow_html=True)
+    st.markdown("<h2>📊 Reports & Statistics</h2>", unsafe_allow_html=True)
     st.subheader("🔎 Filtros Avanzados")
 
     # Obtener lista de agencias para el filtro (solo visible para Admin)
@@ -598,6 +597,72 @@ def page_reports():
         file_name=f"HARK_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+    # ==========================================
+    # 🔁 NUEVA FUNCIÓN: REVERTIR ENTREGAS (Solo Nivel >= 2)
+    # ==========================================
+    if st.session_state.level >= 2:
+        st.divider()
+        st.subheader("↩️ Revertir Entregas (Corrección de Errores)")
+        st.caption("⚠️ Esta acción regresará el vehículo a 'Pending' y limpiará la fecha de entrega.")
+
+        # Consulta específica para vehículos entregados
+        rev_query = """
+            SELECT v.id, v.tag_number, v.vin_number, v.marca, v.modelo, v.service, 
+                   v.delivery_date, v.handled_by, b.name as agency
+            FROM vehicles v
+            LEFT JOIN branches b ON v.branch_id = b.id
+            WHERE v.status = 'Delivered'
+        """
+        rev_conditions = []
+        rev_params = []
+
+        # Si es supervisor, solo muestra entregas de su sucursal
+        if st.session_state.level == 2:
+            rev_conditions.append("v.branch_id = %s")
+            rev_params.append(st.session_state.branch_id)
+
+        if rev_conditions:
+            rev_query += " WHERE " + " AND ".join(rev_conditions)
+        
+        # Limitamos a las últimas 100 entregas para optimizar rendimiento
+        rev_query += " ORDER BY v.delivery_date DESC LIMIT 100"
+
+        with get_db() as conn:
+            c = conn.cursor()
+            c.execute(rev_query, rev_params)
+            delivered_list = c.fetchall()
+
+        if delivered_list:
+            rev_df = pd.DataFrame(delivered_list)
+            display_df = rev_df[['tag_number', 'marca', 'modelo', 'service', 'agency', 'handled_by', 'delivery_date']]
+            st.dataframe(display_df, hide_index=True, use_container_width=True)
+
+            # Selector seguro para revertir
+            vehicle_options = {
+                f"{v['tag_number']} | {v['marca']} {v['modelo']} (Entregado: {v['delivery_date']})": v['id'] 
+                for v in delivered_list
+            }
+            selected_vehicle = st.selectbox("📍 Selecciona el vehículo a revertir:", list(vehicle_options.keys()), index=None)
+            
+            confirm_revert = st.checkbox("✅ Confirmo que deseo revertir esta entrega a Pendiente")
+
+            if st.button("🔄 Revertir Vehículo", type="secondary", disabled=not (selected_vehicle and confirm_revert)):
+                vid = vehicle_options[selected_vehicle]
+                with get_db() as conn2:
+                    c2 = conn2.cursor()
+                    # Regresa a Pending y limpia datos de entrega
+                    c2.execute("""
+                        UPDATE vehicles 
+                        SET status = 'Pending', 
+                            delivery_date = NULL, 
+                            handled_by = NULL 
+                        WHERE id = %s AND status = 'Delivered'
+                    """, (vid,))
+                st.success(f"✅ Vehículo revertido correctamente a estado 'Pending'.")
+                st.rerun()
+        else:
+            st.info("📭 No hay vehículos entregados recientemente para revertir.")
     
 def page_users():
     st.markdown("<h2>👤 User Management</h2>", unsafe_allow_html=True)
