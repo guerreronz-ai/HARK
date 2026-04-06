@@ -343,7 +343,7 @@ def page_ingress():
                 req_day = None
                 req_time = None
                 st.info("ℹ️ *Full Detail for Line* no requiere fecha/hora específica.")
-        else:
+            else:
                 req_day = st.date_input("Required Day", value=default_day, min_value=today, key="day_in")
                 req_time = st.time_input("Required Time", value=time(9, 0), key="time_in")
     
