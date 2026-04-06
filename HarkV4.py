@@ -184,61 +184,46 @@ SERVICES_LIST = [
 
 def get_status_info(service, reception_str, req_day_str, req_time_str):
     try:
-        # 1. LIMPIEZA DE SERVICIO (Para evitar errores de espacios)
         service_clean = service.strip()
-        
-        # === HORA AUTOMÁTICA DE DALLAS (CST/CDT) ===
         dallas_tz = ZoneInfo("America/Chicago")
         now_dallas = datetime.now(dallas_tz)
 
-        # Parsear fechas
         rec_date = datetime.strptime(reception_str, "%Y-%m-%d %H:%M").replace(tzinfo=dallas_tz)
         req_date = datetime.strptime(f"{req_day_str} {req_time_str}", "%Y-%m-%d %H:%M").replace(tzinfo=dallas_tz)
 
-        hours_until = (req_date - now_dallas).total_seconds() / 3600
+        hours_since_reception = (now_dallas - rec_date).total_seconds() / 3600
+        hours_until_deadline = (req_date - now_dallas).total_seconds() / 3600
 
-        # --- LÓGICA DE NEGOCIO ---
-
-        # GRUPO A: Basado en HORAS DESDE RECESIÓN (Full Detail for line, Wash, Loaner, Photo)
-        if service_clean in ["Full Detail for line", "Service Wash", "Loaner", "Photo"]:
-            hours_since = (now_dallas - rec_date).total_seconds() / 3600
-            if hours_since < 24:
-                return "#28a745", "✅ On Time", f"{hours_since:.1f}h since reception"
-            elif hours_since < 48:
-                return "#ffc107", "⚠️ Attention", f"{hours_since:.1f}h since reception"
+        # === FULL DETAIL FOR LINE ===
+        if service_clean == "Full Detail for line":
+            if hours_since_reception < 24:
+                return "#28a745", "✅ On Time", f"{hours_since_reception:.1f}h since reception"
+            elif hours_since_reception < 48:
+                return "#ffc107", "⚠️ Attention", f"{hours_since_reception:.1f}h since reception"
             else:
-                return "#dc3545", "🚨 Delayed", f"{hours_since:.1f}h since reception"
-        
-        # GRUPO B: Basado en FECHA LÍMITE (Full Detail customer, Zaktek, Show Room)
-        elif service_clean in ["Full Detail the customer", "Zaktek", "Show Room"]:
-            if req_date.date() == now_dallas.date():           # Mismo día
-                if hours_until >= 1.0:
-                    return "#28a745", "✅ Ample Time", f"{hours_until:.1f}h until deadline"
-                elif hours_until >= -0.5:                      # Hasta 30 mins tarde
-                    return "#ffc107", "⚠️ Medium Time", f"{hours_until:.1f}h until deadline"
-                else:
-                    return "#dc3545", "🚨 Critical Delay", f"{hours_until:.1f}h until deadline"
-            else:                                              # Días futuros
-                if hours_until >= 2.0:
-                    return "#28a745", "✅ Ample Time", f"{hours_until:.1f}h until deadline"
-                elif hours_until >= 0:
-                    return "#ffc107", "⚠️ Medium Time", f"{hours_until:.1f}h until deadline"
-                else:
-                    return "#dc3545", "🚨 Critical Delay", f"{hours_until:.1f}h until deadline"
-        
-        # GRUPO C: Ventas (Sold use/new car)
-        elif service_clean in ["Sold use car", "Sold new car"]:
-            if hours_until >= 1.0:
-                return "#28a745", "✅ On Time (>1h)", f"{hours_until:.1f}h until deadline"
-            else:
-                return "#dc3545", "🚨 Imminent (<1h)", f"{hours_until:.1f}h until deadline"
-        
-        # Fallback por si hay un servicio nuevo no contemplado
-        return "#28a745", "✅ Normal", f"{hours_until:.1f}h remaining"
+                return "#dc3545", "🚨 Delayed", f"{hours_since_reception:.1f}h since reception"
 
-    except Exception as e:
+        # === FULL DETAIL THE CUSTOMER, ZAKTEK, SOLD NEW CAR, SOLD USE CAR ===
+        elif service_clean in ["Full Detail the customer", "Zaktek", "Sold new car", "Sold use car"]:
+            if hours_until_deadline > 2.0:
+                return "#28a745", "✅ Ample Time", f"{hours_until_deadline:.1f}h until deadline"
+            elif hours_until_deadline > 1.0:
+                return "#ffc107", "⚠️ Medium Time", f"{hours_until_deadline:.1f}h until deadline"
+            else:
+                return "#dc3545", "🚨 Critical", f"{hours_until_deadline:.1f}h until deadline"
+
+        # Servicios restantes (Service Wash, Loaner, Photo, Show Room) - mantengo lógica anterior o la ajustas si quieres
+        else:
+            if hours_since_reception < 24:
+                return "#28a745", "✅ On Time", f"{hours_since_reception:.1f}h since reception"
+            elif hours_since_reception < 48:
+                return "#ffc107", "⚠️ Attention", f"{hours_since_reception:.1f}h since reception"
+            else:
+                return "#dc3545", "🚨 Delayed", f"{hours_since_reception:.1f}h since reception"
+
+    except Exception:
         return "#6c757d", "⚠️ Error", "-"
-
+        
 # ==================== PÁGINAS ====================
 def login_page():
     st.markdown("<h1 style='text-align:center; color:#00d4ff;'>🦈 HARK Login</h1>", unsafe_allow_html=True)
@@ -432,6 +417,12 @@ def page_pending():
                         st.success(f"✅ {v['tag_number']} entregado")
                         st.rerun()
 def page_reports():
+    # 🔒 Solo niveles 2 y 3 pueden ver reportes
+    if st.session_state.level < 2:
+        st.error("🚫 No tienes permisos para acceder a los Reportes.")
+        st.info("Esta sección está disponible solo para Supervisores y Administradores.")
+        st.stop()
+
     st.markdown("\n📊 Reports & Statistics\n", unsafe_allow_html=True)
     st.subheader("🔎 Filtros Avanzados")
 
@@ -441,12 +432,11 @@ def page_reports():
         c.execute("SELECT id, name FROM branches WHERE active=1 ORDER BY name")
         branches = c.fetchall()
 
-    # Opciones de filtro por agencia
     branch_opts = {"🌐 All Agencies": None}
     for b in branches:
         branch_opts[b['name']] = b['id']
 
-    # Layout de filtros (4 columnas)
+    # Layout de filtros
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         period = st.selectbox("Período", ["All Time", "Today", "This Week", "This Month"])
@@ -455,17 +445,17 @@ def page_reports():
     with col3:
         service_filter = st.selectbox("Servicio", ["All"] + SERVICES_LIST)
     with col4:
-        # Solo el Admin ve el selector de agencias
         if st.session_state.level == 3:
             selected_agency = st.selectbox("🏢 Agency", list(branch_opts.keys()))
             branch_id_filter = branch_opts[selected_agency]
         else:
-            # Niveles 1 y 2 siempre ven su propia agencia
+            # Nivel 2 solo ve su propia agencia
             branch_id_filter = st.session_state.branch_id
 
     if st.button("🔄 Actualizar Reportes", type="primary"):
         st.rerun()
 
+    # === consulta SQL, dataframe, métricas, export ===
     with get_db() as conn:
         cursor = conn.cursor()
         query = """
@@ -479,12 +469,10 @@ def page_reports():
         conditions = []
         params = []
 
-        # Aplicar filtro de agencia dinámicamente
         if branch_id_filter is not None:
             conditions.append("v.branch_id = %s")
             params.append(branch_id_filter)
 
-        # Filtros de tiempo
         if period == "Today":
             conditions.append("v.reception_date::date = CURRENT_DATE")
         elif period == "This Week":
@@ -492,7 +480,6 @@ def page_reports():
         elif period == "This Month":
             conditions.append("DATE_TRUNC('month', v.reception_date::timestamp) = DATE_TRUNC('month', CURRENT_DATE)")
 
-        # Filtros de estado y servicio
         if status_filter != "All":
             conditions.append("v.status = %s")
             params.append(status_filter)
@@ -507,7 +494,6 @@ def page_reports():
         cursor.execute(query, params if params else None)
         rows = cursor.fetchall()
 
-        # Corrección del typo original: 'm odelo' -> 'modelo'
         df_all = pd.DataFrame(rows, columns=[
             'tag_number', 'vin_number', 'marca', 'modelo', 'service',
             'status', 'reception_date', 'delivery_date', 'is_urgent', 'agency'
@@ -517,6 +503,7 @@ def page_reports():
         st.warning("📭 No se encontraron vehículos con los filtros aplicados.")
         return
 
+    # ... df_display, métricas, dataframe y download_button 
     df_display = df_all.copy()
     df_display = df_display.rename(columns={
         'tag_number': 'TAG',
@@ -555,7 +542,7 @@ def page_reports():
         file_name=f"HARK_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-
+    
 def page_users():
     st.markdown("<h2>👤 User Management</h2>", unsafe_allow_html=True)
 
@@ -688,10 +675,15 @@ def main():
                 del st.session_state[k]
             st.rerun()
 
-        menu_options = ["🚦 Ingress", "🏎️ Pending", "📊 Reports"]
+               # Menú según nivel de usuario
+        menu_options = ["🚦 Ingress", "🏎️ Pending"]
+
+        if st.session_state.level >= 2:          # Nivel 2 y 3 ven Reports
+            menu_options.append("📊 Reports")
+
         if st.session_state.level == 3:
             menu_options.append("👤 Users")
-
+            
         menu = st.sidebar.radio("Menú", menu_options)
 
         if menu == "🚦 Ingress": page_ingress()
