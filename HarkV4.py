@@ -232,41 +232,6 @@ def login_page():
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
         
-        with get_db() as conn:
-            c = conn.cursor()
-            c.execute("SELECT id, name FROM branches WHERE active=1")
-            branches = c.fetchall()
-            opts = {b['name']: b['id'] for b in branches}
-            branch_sel = st.selectbox("Agency", list(opts.keys()))
-        
-        if st.form_submit_button("Login", use_container_width=True, type="primary"):
-            with get_db() as conn:
-                hashed = hashlib.sha256(password.encode()).hexdigest()
-                c = conn.cursor()
-                c.execute("SELECT id, username, level, full_name FROM users WHERE username=%s AND password=%s", 
-                         (username, hashed))
-                user = c.fetchone()
-                if user:
-                    st.session_state.update({
-                        "logged_in": True,
-                        "user_id": user['id'],
-                        "username": user['username'],
-                        "level": user['level'],
-                        "branch_id": opts.get(branch_sel),
-                        "branch_name": branch_sel if user['level'] < 3 else "All (Admin)",
-                        "full_name": user['full_name']
-                    })
-                    st.rerun()
-                else:
-                    st.error("❌ Credenciales inválidas")
-
-def login_page():
-    st.markdown("<h1 style='text-align:center; color:#00d4ff;'>🦈 HARK Login</h1>", unsafe_allow_html=True)
-    
-    with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        
         if st.form_submit_button("Login", use_container_width=True, type="primary"):
             with get_db() as conn:
                 hashed = hashlib.sha256(password.encode()).hexdigest()
@@ -296,6 +261,73 @@ def login_page():
                     st.rerun()
                 else:
                     st.error("❌ Credenciales inválidas")
+
+def page_ingress():
+    st.markdown("<h2>🚦 Vehicle Ingress</h2>", unsafe_allow_html=True)
+    st.info(f"📍 Agency: **{st.session_state.branch_name}** | 👤 {st.session_state.full_name}")
+    
+    with st.form("ingress_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            vin = st.text_input("VIN Number", key="vin_in")
+            tag = st.text_input("TAG Number", key="tag_in")
+            marca = st.text_input("Marca (Brand)", key="marca_in", placeholder="Ej: Acura")
+        
+        with col2:
+            modelo = st.text_input("Modelo (Model)", key="modelo_in", placeholder="Ej: MDX")
+            responsible_name = st.text_input("Technical/Sales Man (Name)", key="res_name_in")
+            service = st.selectbox("Service", SERVICES_LIST)
+        
+        with col3:
+            today = datetime.now().date()
+            default_day = today if datetime.now().hour < 20 else today + timedelta(days=1)
+            
+            req_day = st.date_input("Required Day", value=default_day, min_value=today, key="day_in")
+            req_time = st.time_input("Required Time", value=time(9, 0), key="time_in")
+            notes = st.text_area("Notes", placeholder="Observations...", key="notes_in")
+        
+        urgent = st.checkbox("🚨 Mark as URGENT (Maximum Priority)")
+        
+        if st.form_submit_button("💾 Save Vehicle", use_container_width=True, type="primary"):
+            if not tag.strip():
+                st.error("❌ TAG Number is required")
+                st.stop()
+            
+            with get_db() as conn:
+                c = conn.cursor()
+                c.execute("""
+                    SELECT id FROM vehicles 
+                    WHERE tag_number=%s AND service=%s AND branch_id=%s AND status='Pending'
+                """, (tag.strip().upper(), service, st.session_state.branch_id))
+                
+                if c.fetchone():
+                    st.error(f"❌ {tag.upper()} ya está en la cola para {service}")
+                    st.stop()
+                
+                c.execute("""
+                    INSERT INTO vehicles 
+                    (vin_number, tag_number, marca, modelo, required_day, required_time, service, notes,
+                     is_urgent, branch_id, reception_date, status, responsible_name)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """, (
+                    vin.strip().upper() if vin else None,
+                    tag.strip().upper(),
+                    marca.strip() if marca else None,
+                    modelo.strip() if modelo else None,
+                    req_day.strftime("%Y-%m-%d"),
+                    req_time.strftime("%H:%M"),
+                    service,
+                    notes.strip(),
+                    1 if urgent else 0,
+                    st.session_state.branch_id,
+                    datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    'Pending',
+                    responsible_name.strip()
+                ))
+            
+            st.success(f"✅ {tag.upper()} registrado correctamente")
+            st.rerun()
 
 def page_pending():
     st.markdown("\n🏎️ Pending Vehicles\n", unsafe_allow_html=True)
