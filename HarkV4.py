@@ -133,21 +133,29 @@ def init_database():
             level INTEGER NOT NULL, full_name TEXT, branch_id INTEGER REFERENCES branches(id)
         )''')
         
-        # NUEVA: Tabla para guardar configuración de columnas por usuario
         c.execute('''CREATE TABLE IF NOT EXISTS user_preferences (
             id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
             preference_key TEXT NOT NULL, preference_value TEXT,
             UNIQUE(user_id, preference_key)
         )''')
         
-        # ACTUALIZADA: required_day y required_time ahora permiten NULL
+        # ✅ ACTUALIZADO: Se eliminan NOT NULL para permitir VIN/TAG/Fechas opcionales
         c.execute('''CREATE TABLE IF NOT EXISTS vehicles (
-            id SERIAL PRIMARY KEY, vin_number TEXT, tag_number TEXT NOT NULL,
+            id SERIAL PRIMARY KEY, vin_number TEXT, tag_number TEXT,
             marca TEXT, modelo TEXT, required_day TEXT, required_time TEXT,
             service TEXT NOT NULL, responsible_name TEXT, notes TEXT, status TEXT DEFAULT 'Pending',
             reception_date TEXT NOT NULL, delivery_date TEXT, handled_by TEXT,
             is_urgent INTEGER DEFAULT 0, branch_id INTEGER REFERENCES branches(id)
         )''')
+
+        # 🛠️ MIGRACIÓN: Si la tabla ya existe, elimina las restricciones antiguas
+        try:
+            c.execute("ALTER TABLE vehicles ALTER COLUMN tag_number DROP NOT NULL")
+            c.execute("ALTER TABLE vehicles ALTER COLUMN required_day DROP NOT NULL")
+            c.execute("ALTER TABLE vehicles ALTER COLUMN required_time DROP NOT NULL")
+            conn.commit()
+        except Exception:
+            pass  # Ya están actualizadas
 
         c.execute("SELECT COUNT(*) as total FROM branches")
         if c.fetchone()['total'] == 0:
@@ -179,6 +187,7 @@ SERVICES_LIST = [
     "Service Wash", "Loaner", "Photo", "Full Detail the customer",
     "Zaktek", "Show Room", "Full Detail for line", "Sold use car", "Sold new car"
 ]
+
 # ==================== CONFIGURACIÓN DE CAMPOS POR SERVICIO ====================
 SERVICE_FIELD_REQUIREMENTS = {
     "Service Wash": "tag",
@@ -191,7 +200,8 @@ SERVICE_FIELD_REQUIREMENTS = {
     "Sold use car": "vin",
     "Sold new car": "vin"
 }
-# ==================== FUNCIONES DE PREFERENCIAS DE USUARIO ====================
+
+# ==================== FUNCIONES DE PREFERENCIAS (Para columnas) ====================
 def get_user_preference(user_id, key, default=None):
     with get_db() as conn:
         c = conn.cursor()
@@ -323,8 +333,8 @@ def page_ingress():
             service = st.selectbox("Service", SERVICES_LIST, key="service_sel")
             req_type = SERVICE_FIELD_REQUIREMENTS.get(service, "both")
             
-            vin_label = "VIN Number *" if req_type in ["vin", "both"] else "VIN Number (Opcional)"
-            tag_label = "TAG Number *" if req_type in ["tag", "both"] else "TAG Number (Opcional)"
+            vin_label = "VIN Number *" if req_type in ["vin", "both"] else "VIN Number (Optional)"
+            tag_label = "TAG Number *" if req_type in ["tag", "both"] else "TAG Number (Optional)"
             
             vin = st.text_input(vin_label, key="vin_in")
             tag = st.text_input(tag_label, key="tag_in")
@@ -337,84 +347,38 @@ def page_ingress():
         with col3:
             today = datetime.now().date()
             default_day = today if datetime.now().hour < 20 else today + timedelta(days=1)
-    
+            
             # Ocultar fecha/hora solo para Full Detail for line
             if service == "Full Detail for line":
                 req_day = None
                 req_time = None
-                st.info("ℹ️ *Full Detail for Line* no requiere fecha/hora específica.")
+                st.info("ℹ️ *Full Detail for Line* does not require specific date/time.")
             else:
                 req_day = st.date_input("Required Day", value=default_day, min_value=today, key="day_in")
                 req_time = st.time_input("Required Time", value=time(9, 0), key="time_in")
-    
-    notes = st.text_area("Notes", placeholder="Observations...", key="notes_in")
-    
-    # Determinar qué campos son requeridos según el servicio
-    req_type = SERVICE_FIELD_REQUIREMENTS.get(service, "both")
-    
-    # Validación dinámica
-    if req_type == "both":
-        if not vin.strip() or not tag.strip():
-            st.error("❌ Este servicio requiere VIN y TAG")
-            st.stop()
-    elif req_type == "vin":
-        if not vin.strip():
-            st.error("❌ Este servicio requiere VIN Number")
-            st.stop()
-    elif req_type == "tag":
-        if not tag.strip():
-            st.error("❌ Este servicio requiere TAG Number")
-            st.stop()
-    
-    # Verificar duplicados según el campo requerido
-    if req_type == "tag" or req_type == "both":
-        check_val = tag.strip().upper()
-        check_col = "tag_number"
-    else:
-        check_val = vin.strip().upper()
-        check_col = "vin_number"
-    
-    with get_db() as conn:
-        c = conn.cursor()
+                
+            notes = st.text_area("Notes", placeholder="Observations...", key="notes_in")
         
-        # Verificar si ya existe
-        c.execute(f"""
-            SELECT id FROM vehicles 
-            WHERE {check_col}=%s AND service=%s AND branch_id=%s AND status='Pending'
-        """, (check_val, service, st.session_state.branch_id))
+        urgent = st.checkbox("🚨 Mark as URGENT (Maximum Priority)")
         
-        if c.fetchone():
-            st.error(f"❌ {check_val} ya está registrado para {service}")
-            st.stop()
-        
-        # Insertar (permitiendo NULL en los campos opcionales)
-        c.execute("""
-            INSERT INTO vehicles 
-            (vin_number, tag_number, marca, modelo, required_day, required_time, service, notes,
-             is_urgent, branch_id, reception_date, status, responsible_name)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (
-            vin.strip().upper() if vin and req_type in ["vin", "both"] else None,
-            tag.strip().upper() if tag and req_type in ["tag", "both"] else None,
-            marca.strip() if marca else None,
-            modelo.strip() if modelo else None,
-            req_day.strftime("%Y-%m-%d") if req_day else None,
-            req_time.strftime("%H:%M") if req_time else None,
-            service,
-            notes.strip(),
-            1 if urgent else 0,
-            st.session_state.branch_id,
-            datetime.now().strftime("%Y-%m-%d %H:%M"),
-            'Pending',
-            responsible_name.strip()
-        ))
-    
-    st.success(f"✅ Vehículo registrado correctamente")
-    st.rerun()
+        if st.form_submit_button("💾 Save Vehicle", use_container_width=True, type="primary"):
+            # Validación dinámica según servicio
+            if req_type == "both":
+                if not vin.strip() or not tag.strip():
+                    st.error("❌ This service requires both VIN and TAG")
+                    st.stop()
+            elif req_type == "vin":
+                if not vin.strip():
+                    st.error("❌ This service requires a VIN Number")
+                    st.stop()
+            elif req_type == "tag":
+                if not tag.strip():
+                    st.error("❌ This service requires a TAG Number")
+                    st.stop()
             
             # Verificar duplicados según campo requerido
-            check_val = tag.strip().upper() if req_type in ["tag", "both"] else vin.strip().upper()
-            check_col = "tag_number" if req_type in ["tag", "both"] else "vin_number"
+            check_val = (vin if req_type in ["vin", "both"] else tag).strip().upper()
+            check_col = "vin_number" if req_type in ["vin", "both"] else "tag_number"
             
             with get_db() as conn:
                 c = conn.cursor()
@@ -424,7 +388,7 @@ def page_ingress():
                 """, (check_val, service, st.session_state.branch_id))
                 
                 if c.fetchone():
-                    st.error(f"❌ {check_val} ya está registrado para {service}")
+                    st.error(f"❌ {check_val} is already registered for {service}")
                     st.stop()
                 
                 c.execute("""
@@ -433,8 +397,8 @@ def page_ingress():
                      is_urgent, branch_id, reception_date, status, responsible_name)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """, (
-                    vin.strip().upper() if vin else None,
-                    tag.strip().upper() if tag else None,
+                    vin.strip().upper() if vin and req_type in ["vin", "both"] else None,
+                    tag.strip().upper() if tag and req_type in ["tag", "both"] else None,
                     marca.strip() if marca else None,
                     modelo.strip() if modelo else None,
                     req_day.strftime("%Y-%m-%d") if req_day else None,
@@ -448,9 +412,8 @@ def page_ingress():
                     responsible_name.strip()
                 ))
             
-            st.success(f"✅ Vehículo registrado correctamente")
+            st.success("✅ Vehicle registered successfully")
             st.rerun()
-            
 def page_pending():
     st.markdown("<h2>🏎️ Pending Vehicles</h2>", unsafe_allow_html=True)
     
