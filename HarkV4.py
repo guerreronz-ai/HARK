@@ -571,6 +571,13 @@ def page_pending():
                     st.success(f"✅ {count} vehicle(s) finished correctly.")
                     st.rerun()
 def page_reports():
+    # 🔒 Verificar que el usuario esté logueado y tenga nivel
+    if 'logged_in' not in st.session_state or 'level' not in st.session_state:
+        st.error("🚫 Session expired. Please login again.")
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+    
     # 🔒 Restricción de acceso - Solo niveles 2 y 3
     if st.session_state.level < 2:
         st.error("🚫 You do not have permissions to access Reports.")
@@ -692,10 +699,10 @@ def page_reports():
         file_name=f"HARK_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-# ==========================================
-# 🔁 REVERTIR ENTREGAS (Solo Nivel >= 2)
-# ==========================================
-if st.session_state.level >= 2:
+
+    # ==========================================
+    # 🔁 REVERTIR ENTREGAS (Solo Nivel >= 2) - ÚLTIMAS 24 HORAS
+    # ==========================================
     st.divider()
     st.subheader("↩️ Reverting Deliveries (Last 24 Hours)")
     st.caption("⚠️ This action will return the vehicle to 'Pending' and clear the delivery date.")
