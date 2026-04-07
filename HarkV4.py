@@ -692,75 +692,65 @@ def page_reports():
         file_name=f"HARK_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+# ==========================================
+# 🔁 REVERTIR ENTREGAS (Solo Nivel >= 2)
+# ==========================================
+if st.session_state.level >= 2:
+    st.divider()
+    st.subheader("↩️ Reverting Deliveries (Last 24 Hours)")
+    st.caption("⚠️ This action will return the vehicle to 'Pending' and clear the delivery date.")
 
-    # ==========================================
-    # 🔁 REVERTIR ENTREGAS (Solo Nivel >= 2)
-    # ==========================================
-    if st.session_state.level >= 2:
-        st.divider()
-        st.subheader("↩️ Reverting Deliveries (Last 24 Hours)")
-        st.caption("⚠️ This action will return the vehicle to 'Pending' and clear the delivery date.")
+    rev_query = """
+        SELECT v.id, v.tag_number, v.vin_number, v.marca, v.modelo, v.service, 
+               v.delivery_date, v.handled_by, b.name as agency
+        FROM vehicles v
+        LEFT JOIN branches b ON v.branch_id = b.id
+        WHERE v.status = 'Delivered'
+          AND v.delivery_date::timestamp >= CURRENT_TIMESTAMP - INTERVAL '24 HOURS'
+    """
+    rev_params = []
 
-        rev_query = """
-            SELECT v.id, v.tag_number, v.vin_number, v.marca, v.modelo, v.service, 
-                   v.delivery_date, v.handled_by, b.name as agency
-            FROM vehicles v
-            LEFT JOIN branches b ON v.branch_id = b.id
-            WHERE v.status = 'Delivered'
-        """
-        rev_conditions = []
-        rev_params = []
+    # Si es supervisor, solo muestra entregas de su sucursal
+    if st.session_state.level == 2:
+        rev_query += " AND v.branch_id = %s"
+        rev_params.append(st.session_state.branch_id)
+    
+    # Ordenamos por fecha descendente
+    rev_query += " ORDER BY v.delivery_date DESC"
 
-        # ✅ MODIFICADO: Filtrar solo entregas de las últimas 24 horas
-        # Usamos ::timestamp para convertir el texto a fecha y comparar con la hora actual de la BD (Dallas Time)
-        rev_conditions.append("v.delivery_date::timestamp >= CURRENT_TIMESTAMP - INTERVAL '24 HOURS'")
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute(rev_query, rev_params)
+        delivered_list = c.fetchall()
 
-        if st.session_state.level == 2:
-            rev_conditions.append("v.branch_id = %s")
-            rev_params.append(st.session_state.branch_id)
+    if delivered_list:
+        rev_df = pd.DataFrame(delivered_list)
+        display_df = rev_df[['tag_number', 'marca', 'modelo', 'service', 'agency', 'handled_by', 'delivery_date']]
+        st.dataframe(display_df, hide_index=True, use_container_width=True)
 
-        if rev_conditions:
-            rev_query += " WHERE " + " AND ".join(rev_conditions)
+        vehicle_options = {
+            f"{v['tag_number']} | {v['marca']} {v['modelo']} (Delivered: {v['delivery_date']})": v['id'] 
+            for v in delivered_list
+        }
+        selected_vehicle = st.selectbox("📍 Select the vehicle to reverse:", list(vehicle_options.keys()), index=None)
         
-        # Ordenamos por fecha descendente
-        rev_query += " ORDER BY v.delivery_date DESC"
+        confirm_revert = st.checkbox("✅ I confirm that I wish to revert this delivery to Pending")
 
-        with get_db() as conn:
-            c = conn.cursor()
-            c.execute(rev_query, rev_params)
-            delivered_list = c.fetchall()
-
-        if delivered_list:
-            # Corrección de typos del archivo original (D ataFrame -> DataFrame)
-            rev_df = pd.DataFrame(delivered_list)
-            display_df = rev_df[['tag_number', 'marca', 'modelo', 'service', 'agency', 'handled_by', 'delivery_date']]
-            
-            # Corrección de typo (hide_in dex -> hide_index)
-            st.dataframe(display_df, hide_index=True, use_container_width=True)
-
-            vehicle_options = {
-                f"{v['tag_number']} | {v['marca']} {v['modelo']} (Delivered: {v['delivery_date']})": v['id'] 
-                for v in delivered_list
-            }
-            selected_vehicle = st.selectbox("📍 Select the vehicle to reverse:", list(vehicle_options.keys()), index=None)
-            
-            confirm_revert = st.checkbox("✅ I confirm that I wish to revert this delivery to Pending")
-
-            if st.button("🔄 Reverse Vehicle", type="secondary", disabled=not (selected_vehicle and confirm_revert)):
-                vid = vehicle_options[selected_vehicle]
-                with get_db() as conn2:
-                    c2 = conn2.cursor()
-                    c2.execute("""
-                        UPDATE vehicles 
-                        SET status = 'Pending', 
-                            delivery_date = NULL, 
-                            handled_by = NULL 
-                        WHERE id = %s AND status = 'Delivered'
-                    """, (vid,))
-                st.success(f"✅ Vehicle successfully reverted to state 'Pending'.")
-                st.rerun()
-        else:
-            st.info("📭 There are no delivered vehicles in the last 24 hours to reverse.")
+        if st.button("🔄 Reverse Vehicle", type="secondary", disabled=not (selected_vehicle and confirm_revert)):
+            vid = vehicle_options[selected_vehicle]
+            with get_db() as conn2:
+                c2 = conn2.cursor()
+                c2.execute("""
+                    UPDATE vehicles 
+                    SET status = 'Pending', 
+                        delivery_date = NULL, 
+                        handled_by = NULL 
+                    WHERE id = %s AND status = 'Delivered'
+                """, (vid,))
+            st.success(f"✅ Vehicle successfully reverted to state 'Pending'.")
+            st.rerun()
+    else:
+        st.info("📭 There are no delivered vehicles in the last 24 hours to reverse.")
             
 def page_users():
     st.markdown("<h2>👤 User Management</h2>", unsafe_allow_html=True)
