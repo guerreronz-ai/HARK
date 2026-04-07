@@ -8,6 +8,7 @@ import hashlib
 from contextlib import contextmanager
 from io import BytesIO
 import os
+import time
 
 # ==================== CONFIGURACIÓN VISUAL PROFESIONAL ====================
 st.set_page_config(
@@ -309,22 +310,23 @@ def login_page():
                 """, (username, hashed))
                 
                 user = c.fetchone()
-                
-                if user:
-                    st.session_state.update({
-                        "logged_in": True,
-                        "user_id": user['id'],
-                        "username": user['username'],
-                        "level": user['level'],
-                        "branch_id": user['branch_id'],
-                        "branch_name": user['branch_name'],
-                        "full_name": user['full_name']
-                    })
-                    st.success(f"✅ Bienvenido, {user['full_name']}")
-                    st.rerun()
-                else:
-                    st.error("❌ Credenciales inválidas")
 
+        if user:
+            st.session_state.update({
+                "logged_in": True,
+                "login_timestamp": time.time(),  # ⏰ Guardamos la hora del login
+                "user_id": user['id'],
+                "username": user['username'],
+                "level": user['level'],
+                "branch_id": user['branch_id'],
+                "branch_name": user['branch_name'],
+                "full_name": user['full_name']
+            })
+            st.success(f"✅ Welcome, {user['full_name']}")
+            st.rerun()
+        else:
+            st.error("❌ Invalid credentials")
+        
 def page_ingress():
     st.markdown("<h2>🚦 Vehicle Ingress</h2>", unsafe_allow_html=True)
     st.info(f"📍 Agency: **{st.session_state.branch_name}** | 👤 {st.session_state.full_name}")
@@ -866,7 +868,25 @@ def page_users():
 # ==================== MAIN ====================
 def main():
     init_database()
-    
+
+    # 🕒 LÓGICA DE TIMEOUT: 5 HORAS PARA NIVEL 1
+    if 'logged_in' in st.session_state and st.session_state.level == 1:
+        # Si no existe la marca de tiempo, la creamos
+        if 'login_timestamp' not in st.session_state:
+            st.session_state.login_timestamp = time.time()
+            
+        # 5 horas = 5 * 60 min * 60 seg = 18,000 segundos
+        five_hours_seconds = 5 * 60 * 60
+        
+        # Verificamos si ya pasaron las 5 horas
+        if time.time() - st.session_state.login_timestamp > five_hours_seconds:
+            st.error("⏰ Session expired (5 hours limit). Please login again.")
+            # Limpiamos todo
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+
+    # --- SI NO ESTÁ LOGUEADO O NO ES NIVEL 1, CONTINÚA ---
     if 'logged_in' not in st.session_state:
         login_page()
     else:
@@ -893,12 +913,12 @@ def main():
         if st.session_state.level == 3:
             menu_options.append("👤 Users")
             
-        menu = st.sidebar.radio("Menú", menu_options)
+        menu = st.sidebar.radio("Menu", menu_options)
 
         if menu == "🚦 Ingress": page_ingress()
         elif menu == "🏎️ Pending": page_pending()
         elif menu == "📊 Reports": page_reports()
         elif menu == "👤 Users": page_users()
-
+            
 if __name__ == "__main__":
     main()
