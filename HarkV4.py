@@ -478,9 +478,9 @@ def page_pending():
 
     if not all_v:
         if search_term:
-            st.warning(f"📭 No se encontraron vehículos pendientes que coincidan con '{search_term}'")
+            st.warning(f"📭 No pending vehicles were found that matched '{search_term}'")
         else:
-            st.info("📭 No hay vehículos pendientes.")
+            st.info("📭 There are no pending vehicles.")
         return
 
     by_service = {}
@@ -488,7 +488,7 @@ def page_pending():
         by_service.setdefault(v['service'], []).append(v)
 
     for svc, vehs in by_service.items():
-        with st.expander(f"**{svc}** — {len(vehs)} vehículo(s)", expanded=True):
+        with st.expander(f"**{svc}** — {len(vehs)} vehicle(s)", expanded=True):
             rows = []
             for v in vehs:
                 color, msg, info = get_status_info(
@@ -521,7 +521,7 @@ def page_pending():
             column_config = {
                 "Complete": st.column_config.CheckboxColumn(
                     "Complete", 
-                    help="Mark to deliver",
+                    help="DONE",
                     default=False
                 ),
                 "Status": st.column_config.TextColumn(disabled=True),
@@ -547,11 +547,11 @@ def page_pending():
                 key=f"editor_{svc.replace(' ', '_')}"
             )
 
-            if st.button("🚀 Deliver Selected", key=f"btn_deliver_{svc.replace(' ', '_')}", use_container_width=True, type="primary"):
+            if st.button("🚀 Done", key=f"btn_deliver_{svc.replace(' ', '_')}", use_container_width=True, type="primary"):
                 selected_rows = edited_df[edited_df["Complete"] == True]
                 
                 if selected_rows.empty:
-                    st.warning("⚠️ No has seleccionado ningún vehículo.")
+                    st.warning("⚠️ You have not selected a vehicle.")
                 else:
                     count = 0
                     with get_db() as conn2:
@@ -568,7 +568,7 @@ def page_pending():
                             """, (delivery_time, st.session_state.username, original_id))
                             count += 1
                     
-                    st.success(f"✅ {count} vehículo(s) entregados correctamente.")
+                    st.success(f"✅ {count} vehicle(s) finished correctly.")
                     st.rerun()
 def page_reports():
     # 🔒 Restricción de acceso - Solo niveles 2 y 3
@@ -651,7 +651,7 @@ def page_reports():
         ])
 
     if df_all.empty:
-        st.warning("📭 No se encontraron vehículos con los filtros aplicados.")
+        st.warning("📭 No vehicles with the filters applied were found.")
         return
 
     df_display = df_all.copy()
@@ -699,7 +699,7 @@ def page_reports():
     if st.session_state.level >= 2:
         st.divider()
         st.subheader("↩️ Revertir Entregas (Corrección de Errores)")
-        st.caption("⚠️ Esta acción regresará el vehículo a 'Pending' y limpiará la fecha de entrega.")
+        st.caption("⚠️ This action will return the vehicle to 'Pending' and clear the delivery date.")
 
         rev_query = """
             SELECT v.id, v.tag_number, v.vin_number, v.marca, v.modelo, v.service, 
@@ -734,11 +734,11 @@ def page_reports():
                 f"{v['tag_number']} | {v['marca']} {v['modelo']} (Entregado: {v['delivery_date']})": v['id'] 
                 for v in delivered_list
             }
-            selected_vehicle = st.selectbox("📍 Selecciona el vehículo a revertir:", list(vehicle_options.keys()), index=None)
+            selected_vehicle = st.selectbox("📍 SSelect the vehicle to reverse:", list(vehicle_options.keys()), index=None)
             
-            confirm_revert = st.checkbox("✅ Confirmo que deseo revertir esta entrega a Pendiente")
+            confirm_revert = st.checkbox("✅ I confirm that I wish to revert this submission to Pending")
 
-            if st.button("🔄 Revertir Vehículo", type="secondary", disabled=not (selected_vehicle and confirm_revert)):
+            if st.button("🔄 Reverse Vehicle", type="secondary", disabled=not (selected_vehicle and confirm_revert)):
                 vid = vehicle_options[selected_vehicle]
                 with get_db() as conn2:
                     c2 = conn2.cursor()
@@ -749,19 +749,19 @@ def page_reports():
                             handled_by = NULL 
                         WHERE id = %s AND status = 'Delivered'
                     """, (vid,))
-                st.success(f"✅ Vehículo revertido correctamente a estado 'Pending'.")
+                st.success(f"✅ Vehicle successfully reverted to state 'Pending'.")
                 st.rerun()
         else:
-            st.info("📭 No hay vehículos entregados recientemente para revertir.")
+            st.info("📭 There are no recently delivered vehicles to reverse.")
 
 def page_users():
     st.markdown("<h2>👤 User Management</h2>", unsafe_allow_html=True)
     
     if st.session_state.level != 3:
-        st.warning("🔒 Acceso denegado. Solo los Administradores pueden gestionar usuarios.")
+        st.warning("🔒 Access denied. Only Administrators can manage users..")
         return
 
-    with st.expander("➕ Agregar Nuevo Usuario", expanded=False):
+    with st.expander("➕ Add New User", expanded=False):
         with st.form("create_user_form"):
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -780,7 +780,7 @@ def page_users():
 
             if st.form_submit_button("💾 Crear Usuario", use_container_width=True, type="primary"):
                 if not new_username or not new_pass or not new_fullname:
-                    st.error("❌ Todos los campos son obligatorios.")
+                    st.error("❌ All fields are required.")
                 else:
                     hashed = hashlib.sha256(new_pass.encode()).hexdigest()
                     branch_id = branch_opts[selected_branch]
@@ -791,13 +791,13 @@ def page_users():
                                 INSERT INTO users (username, password, level, full_name, branch_id)
                                 VALUES (%s, %s, %s, %s, %s)
                             """, (new_username.strip(), hashed, new_level, new_fullname.strip(), branch_id))
-                        st.success(f"✅ Usuario '{new_username}' creado exitosamente en **{selected_branch}**.")
+                        st.success(f"✅ User '{new_username}' successfully created in **{selected_branch}**.")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Error al crear usuario: {e}")
+                        st.error(f"❌ Error creating user: {e}")
 
     st.divider()
-    st.subheader("📋 Usuarios Registrados")
+    st.subheader("📋 Registered Users")
 
     with get_db() as conn:
         c = conn.cursor()
@@ -821,42 +821,42 @@ def page_users():
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("### 🔑 Restablecer Contraseña")
+            st.markdown("### 🔑 Reset Password")
             user_list = {f"{u['username']} ({u['full_name']})": u['id'] for u in users_data}
-            selected_user = st.selectbox("Seleccionar Usuario", list(user_list.keys()))
-            new_password = st.text_input("Nueva Contraseña", type="password", key="reset_pass")
+            selected_user = st.selectbox("Select User", list(user_list.keys()))
+            new_password = st.text_input("New Password", type="password", key="reset_pass")
             
-            if st.button("🔄 Actualizar Contraseña", use_container_width=True):
+            if st.button("🔄 Update Password", use_container_width=True):
                 if new_password:
                     hashed = hashlib.sha256(new_password.encode()).hexdigest()
                     user_id = user_list[selected_user]
                     with get_db() as conn:
                         c = conn.cursor()
                         c.execute("UPDATE users SET password = %s WHERE id = %s", (hashed, user_id))
-                    st.success(f"✅ Contraseña actualizada para {selected_user}")
+                    st.success(f"✅ Updated password for {selected_user}")
                     st.rerun()
                 else:
-                    st.error("❌ Ingresa una contraseña")
+                    st.error("❌Enter a password")
         
         with col2:
-            st.markdown("### 🗑️ Eliminar Usuario")
+            st.markdown("### 🗑️ Delete User")
             delete_list = {f"{u['username']} - {u['full_name']} (Nivel {u['level']})": u['id'] for u in users_data if u['id'] != st.session_state.user_id}
             
             if delete_list:
-                selected_delete = st.selectbox("Seleccionar Usuario a Eliminar", list(delete_list.keys()))
-                confirm_delete = st.checkbox("Confirmar eliminación", key="confirm_del")
+                selected_delete = st.selectbox("Select User to Delete", list(delete_list.keys()))
+                confirm_delete = st.checkbox("Confirm deletion", key="confirm_del")
                 
-                if st.button("🗑️ Eliminar Usuario", use_container_width=True, disabled=not confirm_delete):
+                if st.button("🗑️ Delete User", use_container_width=True, disabled=not confirm_delete):
                     user_id = delete_list[selected_delete]
                     with get_db() as conn:
                         c = conn.cursor()
                         c.execute("DELETE FROM users WHERE id = %s", (user_id,))
-                    st.success(f"✅ Usuario {selected_delete} eliminado")
+                    st.success(f"✅ User {selected_delete} Delete")
                     st.rerun()
             else:
-                st.info("ℹ️ No hay otros usuarios para eliminar")
+                st.info("ℹ️ There are no other users to delete.")
     else:
-        st.info("📭 No hay usuarios registrados.")
+        st.info("📭 There are no registered users.")
 
 # ==================== MAIN ====================
 def main():
@@ -875,7 +875,7 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-        if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
+        if st.sidebar.button("🚪 Sign Out", use_container_width=True):
             for k in list(st.session_state.keys()):
                 del st.session_state[k]
             st.rerun()
