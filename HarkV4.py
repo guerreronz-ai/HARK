@@ -2,13 +2,15 @@ import streamlit as st
 import psycopg2
 import psycopg2.extras
 import pandas as pd
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
+from datetime import time as dt_time
+import time
 from zoneinfo import ZoneInfo
 import hashlib
 from contextlib import contextmanager
 from io import BytesIO
 import os
-import time  # ✅ AGREGADO: Para el timeout de sesión
+import time  
 
 # ==================== CONFIGURACIÓN VISUAL PROFESIONAL ====================
 st.set_page_config(
@@ -332,7 +334,7 @@ def page_ingress():
                 st.info("ℹ️ *Full Detail for Line* does not require specific date/time.")
             else:
                 req_day = st.date_input("Required Day", value=default_day, min_value=today, key="day_in")
-                req_time = st.time_input("Required Time", value=time(9, 0), key="time_in")
+                req_time = st.time_input("Required Time", value=dt_time(9, 0), key="time_in")
                 
             notes = st.text_area("Notes", placeholder="Observations...", key="notes_in")
         
