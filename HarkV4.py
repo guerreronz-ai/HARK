@@ -289,7 +289,7 @@ def login_page():
                 if user:
                     st.session_state.update({
                         "logged_in": True,
-                        "login_timestamp": time.time(),  # ✅ Guardamos la hora del login
+                        "login_timestamp": time.time(),
                         "user_id": user['id'],
                         "username": user['username'],
                         "level": user['level'],
@@ -302,6 +302,15 @@ def login_page():
                 else:
                     st.error("❌ Invalid credentials")
 
+    # ==================== BOTÓN DE INGRESO PÚBLICO (FUERA del formulario) ====================
+    st.divider()
+    st.markdown("### ¿Eres recepcionista temporal?")
+    if st.button("🚦 Ingreso Público sin Login (Nivel 0)", 
+                 use_container_width=True, 
+                 type="secondary"):
+        st.session_state.guest_mode = True
+        st.rerun()
+                     
 def page_ingress():
     st.markdown("<h2>🚦 Vehicle Ingress</h2>", unsafe_allow_html=True)
     st.info(f"📍 Agency: **{st.session_state.branch_name}** | 👤 {st.session_state.full_name}")
@@ -833,17 +842,162 @@ def page_users():
                 st.info("ℹ️ There are no other users to delete.")
     else:
         st.info("📭 There are no registered users.")
+#==================================GUESS=========================================
+def page_public_ingress_level0():
+    st.markdown("<h1 style='text-align:center; color:#00d4ff;'>🚦 Ingreso de Vehículos - Modo Público</h1>", unsafe_allow_html=True)
+    
+    # ==================== SELECCIÓN DE AGENCIA (solo una vez) ====================
+    if 'guest_branch_id' not in st.session_state or 'guest_branch_name' not in st.session_state:
+        st.info("👋 Selecciona tu agencia para comenzar")
+        
+        with get_db() as conn:
+            c = conn.cursor()
+            c.execute("SELECT id, name FROM branches WHERE active=1 ORDER BY name")
+            branches = c.fetchall()
+        
+        branch_dict = {b['name']: b['id'] for b in branches}
+        
+        selected_branch_name = st.selectbox("🏢 Selecciona tu Agencia", list(branch_dict.keys()), key="guest_branch_select")
+        
+        if st.button("✅ Confirmar Agencia y Continuar", type="primary", use_container_width=True):
+            st.session_state.guest_branch_id = branch_dict[selected_branch_name]
+            st.session_state.guest_branch_name = selected_branch_name
+            st.success(f"✅ Agencia configurada: **{selected_branch_name}**")
+            st.rerun()
+        
+        st.stop()  # No muestra el formulario hasta que elija agencia
+
+    # ==================== FORMULARIO DE INGRESO (ya con agencia fija) ====================
+    st.info(f"📍 Agencia seleccionada: **{st.session_state.guest_branch_name}** | Modo Público (Nivel 0)")
+
+    with st.form("guest_ingress_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            service = st.selectbox("Servicio", SERVICES_LIST, key="guest_service")
+            req_type = SERVICE_FIELD_REQUIREMENTS.get(service, "both")
+            
+            vin_label = "VIN Number *" if req_type in ["vin", "both"] else "VIN Number (Opcional)"
+            tag_label = "TAG Number *" if req_type in ["tag", "both"] else "TAG Number (Opcional)"
+            
+            vin = st.text_input(vin_label, key="guest_vin")
+            tag = st.text_input(tag_label, key="guest_tag")
+            marca = st.text_input("Marca", placeholder="Ej: Toyota", key="guest_marca")
+        
+        with col2:
+            modelo = st.text_input("Modelo", placeholder="Ej: Corolla", key="guest_modelo")
+            responsible_name = st.text_input("Responsable / Técnico", key="guest_responsible")
+        
+        with col3:
+            today = datetime.now().date()
+            default_day = today if datetime.now().hour < 20 else today + timedelta(days=1)
+            
+            if service == "Full Detail for line":
+                req_day = None
+                req_time = None
+                st.info("ℹ️ Full Detail for line no requiere fecha/hora específica.")
+            else:
+                req_day = st.date_input("Día Requerido", value=default_day, min_value=today, key="guest_day")
+                req_time = st.time_input("Hora Requerida", value=dt_time(9, 0), key="guest_time")
+                
+            notes = st.text_area("Notas", placeholder="Observaciones...", key="guest_notes")
+        
+        urgent = st.checkbox("🚨 Marcar como URGENTE")
+
+        if st.form_submit_button("💾 Guardar Vehículo", use_container_width=True, type="primary"):
+            # Validaciones (igual que en page_ingress)
+            req_type = SERVICE_FIELD_REQUIREMENTS.get(service, "both")
+            if req_type == "both" and (not vin.strip() or not tag.strip()):
+                st.error("❌ Este servicio requiere VIN y TAG")
+                st.stop()
+            elif req_type == "vin" and not vin.strip():
+                st.error("❌ Este servicio requiere VIN")
+                st.stop()
+            elif req_type == "tag" and not tag.strip():
+                st.error("❌ Este servicio requiere TAG")
+                st.stop()
+
+            dallas_now = datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d %H:%M")
+
+            with get_db() as conn:
+                c = conn.cursor()
+                c.execute("""
+                    INSERT INTO vehicles 
+                    (vin_number, tag_number, marca, modelo, required_day, required_time, 
+                     service, notes, is_urgent, branch_id, reception_date, status, responsible_name)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """, (
+                    vin.strip().upper() if vin else None,
+                    tag.strip().upper() if tag else None,
+                    marca.strip() if marca else None,
+                    modelo.strip() if modelo else None,
+                    req_day.strftime("%Y-%m-%d") if req_day else None,
+                    req_time.strftime("%H:%M") if req_time else None,
+                    service,
+                    notes.strip(),
+                    1 if urgent else 0,
+                    st.session_state.guest_branch_id,
+                    dallas_now,
+                    'Pending',
+                    responsible_name.strip()
+                ))
+            
+            st.success("✅ Vehículo registrado correctamente en " + st.session_state.guest_branch_name)
+            st.rerun()
+
+    # Botón para cambiar de agencia o salir
+    col_a, col_b = st.columns(2)
+    with col_a:
+        if st.button("🔄 Cambiar de Agencia"):
+            if 'guest_branch_id' in st.session_state:
+                del st.session_state.guest_branch_id
+            if 'guest_branch_name' in st.session_state:
+                del st.session_state.guest_branch_name
+            st.rerun()
+    
+    with col_b:
+        if st.button("👤 Ir a Login Normal"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
 
 # ==================== MAIN ====================
 def main():
     init_database()
 
-    # 🕒 LÓGICA DE TIMEOUT: 5 HORAS PARA NIVEL 1
+    # === MODO PÚBLICO NIVEL 0 (sin login) ===
+    if st.session_state.get("guest_mode", False) or "public" in st.query_params:
+        page_public_ingress_level0()
+        return
+
+    # === LÓGICA NORMAL DE LOGIN (como ya la tienes) ===
+    if 'logged_in' not in st.session_state:
+        login_page()
+    else:
+        # ... (todo tu código actual del sidebar y menú)
+        st.sidebar.markdown(...)  # tu sidebar actual
+
+        if st.sidebar.button("🚪 Sign Out", use_container_width=True):
+            for k in list(st.session_state.keys()):
+                del st.session_state[k]
+            st.rerun()
+
+        # ... resto del menú
+
+def main():
+    init_database()
+
+    # ==================== MODO PÚBLICO NIVEL 0 (Guest) ====================
+    if st.session_state.get("guest_mode", False):
+        page_public_ingress_level0()   # ← Función del ingreso público
+        return   # Importante: salimos aquí para no ejecutar el resto
+
+    # ==================== LÓGICA DE TIMEOUT (solo para usuarios logueados nivel 1) ====================
     if 'logged_in' in st.session_state and st.session_state.level == 1:
         if 'login_timestamp' not in st.session_state:
             st.session_state.login_timestamp = time.time()
-            
-        five_hours_seconds = 5 * 60 * 60  # 18,000 segundos
+        
+        five_hours_seconds = 5 * 60 * 60
         
         if time.time() - st.session_state.login_timestamp > five_hours_seconds:
             st.error("⏰ Session expired (5 hours limit). Please login again.")
@@ -851,9 +1005,11 @@ def main():
                 del st.session_state[key]
             st.rerun()
 
+    # ==================== LOGIN NORMAL ====================
     if 'logged_in' not in st.session_state:
         login_page()
     else:
+        # Sidebar del usuario logueado
         st.sidebar.markdown(f"""
         <div style='text-align:center; padding: 20px 0;'>
             <h1 style='color:#00d4ff; margin:0; font-size:2.4em;'>🦈 HARK</h1>
@@ -869,20 +1025,24 @@ def main():
                 del st.session_state[k]
             st.rerun()
 
+        # Menú según nivel de usuario
         menu_options = ["🚦 Ingress", "🏎️ Pending"]
-
         if st.session_state.level >= 2:
             menu_options.append("📊 Reports")
-
         if st.session_state.level == 3:
             menu_options.append("👤 Users")
-            
+        
         menu = st.sidebar.radio("Menu", menu_options)
 
-        if menu == "🚦 Ingress": page_ingress()
-        elif menu == "🏎️ Pending": page_pending()
-        elif menu == "📊 Reports": page_reports()
-        elif menu == "👤 Users": page_users()
+        if menu == "🚦 Ingress": 
+            page_ingress()
+        elif menu == "🏎️ Pending": 
+            page_pending()
+        elif menu == "📊 Reports": 
+            page_reports()
+        elif menu == "👤 Users": 
+            page_users()
 
-if __name__ == "__main__":  # ✅ CORREGIDO: Doble guion bajo
+
+if __name__ == "__main__":
     main()
