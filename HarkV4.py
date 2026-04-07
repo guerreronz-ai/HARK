@@ -521,7 +521,7 @@ def page_pending():
             column_config = {
                 "Complete": st.column_config.CheckboxColumn(
                     "Complete", 
-                    help="Marca para entregar",
+                    help="Mark to deliver",
                     default=False
                 ),
                 "Status": st.column_config.TextColumn(disabled=True),
@@ -547,7 +547,7 @@ def page_pending():
                 key=f"editor_{svc.replace(' ', '_')}"
             )
 
-            if st.button("🚀 Entregar Seleccionados", key=f"btn_deliver_{svc.replace(' ', '_')}", use_container_width=True, type="primary"):
+            if st.button("🚀 Deliver Selected", key=f"btn_deliver_{svc.replace(' ', '_')}", use_container_width=True, type="primary"):
                 selected_rows = edited_df[edited_df["Complete"] == True]
                 
                 if selected_rows.empty:
