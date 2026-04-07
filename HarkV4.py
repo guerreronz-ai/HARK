@@ -304,8 +304,8 @@ def login_page():
 
     # ==================== BOTÓN DE INGRESO PÚBLICO (FUERA del formulario) ====================
     st.divider()
-    st.markdown("### ¿Eres recepcionista temporal?")
-    if st.button("🚦 Ingreso Público sin Login (Nivel 0)", 
+    st.markdown("### Do you need to bring in a vehicle??")
+    if st.button("🚦 Start without login", 
                  use_container_width=True, 
                  type="secondary"):
         st.session_state.guest_mode = True
