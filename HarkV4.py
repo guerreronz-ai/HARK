@@ -573,8 +573,8 @@ def page_pending():
 def page_reports():
     # 🔒 Restricción de acceso - Solo niveles 2 y 3
     if st.session_state.level < 2:
-        st.error("🚫 No tienes permisos para acceder a los Reportes.")
-        st.info("Esta sección está disponible solo para Supervisores y Administradores.")
+        st.error("🚫 You do not have permissions to access Reports.")
+        st.info("This section is available only for Supervisors and Administrators.")
         st.stop()
 
     st.markdown("<h2>📊 Reports & Statistics</h2>", unsafe_allow_html=True)
@@ -591,11 +591,11 @@ def page_reports():
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        period = st.selectbox("Período", ["All Time", "Today", "This Week", "This Month"])
+        period = st.selectbox("Period", ["All Time", "Today", "This Week", "This Month"])
     with col2:
-        status_filter = st.selectbox("Estado", ["All", "Pending", "Delivered"])
+        status_filter = st.selectbox("Status", ["All", "Pending", "Delivered"])
     with col3:
-        service_filter = st.selectbox("Servicio", ["All"] + SERVICES_LIST)
+        service_filter = st.selectbox("Service", ["All"] + SERVICES_LIST)
     with col4:
         if st.session_state.level == 3:
             selected_agency = st.selectbox("🏢 Agency", list(branch_opts.keys()))
@@ -694,11 +694,11 @@ def page_reports():
     )
 
     # ==========================================
-    # 🔁 FUNCIÓN: REVERTIR ENTREGAS (Solo Nivel >= 2)
+    # 🔁 REVERTIR ENTREGAS (Solo Nivel >= 2)
     # ==========================================
     if st.session_state.level >= 2:
         st.divider()
-        st.subheader("↩️ Reverting Deliveries (Error Correction))")
+        st.subheader("↩️ Reverting Deliveries (Last 24 Hours)")
         st.caption("⚠️ This action will return the vehicle to 'Pending' and clear the delivery date.")
 
         rev_query = """
@@ -711,6 +711,10 @@ def page_reports():
         rev_conditions = []
         rev_params = []
 
+        # ✅ MODIFICADO: Filtrar solo entregas de las últimas 24 horas
+        # Usamos ::timestamp para convertir el texto a fecha y comparar con la hora actual de la BD (Dallas Time)
+        rev_conditions.append("v.delivery_date::timestamp >= CURRENT_TIMESTAMP - INTERVAL '24 HOURS'")
+
         if st.session_state.level == 2:
             rev_conditions.append("v.branch_id = %s")
             rev_params.append(st.session_state.branch_id)
@@ -718,7 +722,8 @@ def page_reports():
         if rev_conditions:
             rev_query += " WHERE " + " AND ".join(rev_conditions)
         
-        rev_query += " ORDER BY v.delivery_date DESC LIMIT 100"
+        # Ordenamos por fecha descendente
+        rev_query += " ORDER BY v.delivery_date DESC"
 
         with get_db() as conn:
             c = conn.cursor()
@@ -726,17 +731,20 @@ def page_reports():
             delivered_list = c.fetchall()
 
         if delivered_list:
+            # Corrección de typos del archivo original (D ataFrame -> DataFrame)
             rev_df = pd.DataFrame(delivered_list)
             display_df = rev_df[['tag_number', 'marca', 'modelo', 'service', 'agency', 'handled_by', 'delivery_date']]
+            
+            # Corrección de typo (hide_in dex -> hide_index)
             st.dataframe(display_df, hide_index=True, use_container_width=True)
 
             vehicle_options = {
-                f"{v['tag_number']} | {v['marca']} {v['modelo']} (Entregado: {v['delivery_date']})": v['id'] 
+                f"{v['tag_number']} | {v['marca']} {v['modelo']} (Delivered: {v['delivery_date']})": v['id'] 
                 for v in delivered_list
             }
             selected_vehicle = st.selectbox("📍 Select the vehicle to reverse:", list(vehicle_options.keys()), index=None)
             
-            confirm_revert = st.checkbox("✅ I confirm that I wish to revert this submission to Pending")
+            confirm_revert = st.checkbox("✅ I confirm that I wish to revert this delivery to Pending")
 
             if st.button("🔄 Reverse Vehicle", type="secondary", disabled=not (selected_vehicle and confirm_revert)):
                 vid = vehicle_options[selected_vehicle]
@@ -752,8 +760,8 @@ def page_reports():
                 st.success(f"✅ Vehicle successfully reverted to state 'Pending'.")
                 st.rerun()
         else:
-            st.info("📭 There are no recently delivered vehicles to reverse.")
-
+            st.info("📭 There are no delivered vehicles in the last 24 hours to reverse.")
+            
 def page_users():
     st.markdown("<h2>👤 User Management</h2>", unsafe_allow_html=True)
     
