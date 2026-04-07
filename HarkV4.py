@@ -844,11 +844,11 @@ def page_users():
         st.info("📭 There are no registered users.")
 #==================================GUESS=========================================
 def page_public_ingress_level0():
-    st.markdown("<h1 style='text-align:center; color:#00d4ff;'>🚦 Ingreso de Vehículos - Modo Público</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align:center; color:#00d4ff;'>🚦 Vehicle Entrance</h1>", unsafe_allow_html=True)
     
     # ==================== SELECCIÓN DE AGENCIA (solo una vez) ====================
     if 'guest_branch_id' not in st.session_state or 'guest_branch_name' not in st.session_state:
-        st.info("👋 Selecciona tu agencia para comenzar")
+        st.info("👋 Select your agency to get started")
         
         with get_db() as conn:
             c = conn.cursor()
@@ -857,36 +857,36 @@ def page_public_ingress_level0():
         
         branch_dict = {b['name']: b['id'] for b in branches}
         
-        selected_branch_name = st.selectbox("🏢 Selecciona tu Agencia", list(branch_dict.keys()), key="guest_branch_select")
+        selected_branch_name = st.selectbox("🏢 Select your Agency", list(branch_dict.keys()), key="guest_branch_select")
         
-        if st.button("✅ Confirmar Agencia y Continuar", type="primary", use_container_width=True):
+        if st.button("✅ Confirm Agency and Continue", type="primary", use_container_width=True):
             st.session_state.guest_branch_id = branch_dict[selected_branch_name]
             st.session_state.guest_branch_name = selected_branch_name
-            st.success(f"✅ Agencia configurada: **{selected_branch_name}**")
+            st.success(f"✅ Agency set up: **{selected_branch_name}**")
             st.rerun()
         
         st.stop()  # No muestra el formulario hasta que elija agencia
 
     # ==================== FORMULARIO DE INGRESO (ya con agencia fija) ====================
-    st.info(f"📍 Agencia seleccionada: **{st.session_state.guest_branch_name}** | Modo Público (Nivel 0)")
+    st.info(f"📍 Selected agency: **{st.session_state.guest_branch_name}**")
 
     with st.form("guest_ingress_form", clear_on_submit=True):
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            service = st.selectbox("Servicio", SERVICES_LIST, key="guest_service")
+            service = st.selectbox("Service", SERVICES_LIST, key="guest_service")
             req_type = SERVICE_FIELD_REQUIREMENTS.get(service, "both")
             
-            vin_label = "VIN Number *" if req_type in ["vin", "both"] else "VIN Number (Opcional)"
-            tag_label = "TAG Number *" if req_type in ["tag", "both"] else "TAG Number (Opcional)"
+            vin_label = "VIN Number *" if req_type in ["vin", "both"] else "VIN Number "
+            tag_label = "TAG Number *" if req_type in ["tag", "both"] else "TAG Number "
             
             vin = st.text_input(vin_label, key="guest_vin")
             tag = st.text_input(tag_label, key="guest_tag")
-            marca = st.text_input("Marca", placeholder="Ej: Toyota", key="guest_marca")
+            marca = st.text_input("Brand", placeholder="", key="guest_marca")
         
         with col2:
-            modelo = st.text_input("Modelo", placeholder="Ej: Corolla", key="guest_modelo")
-            responsible_name = st.text_input("Responsable / Técnico", key="guest_responsible")
+            modelo = st.text_input("Model", placeholder="", key="guest_modelo")
+            responsible_name = st.text_input("responsible", key="guest_responsible")
         
         with col3:
             today = datetime.now().date()
@@ -900,11 +900,11 @@ def page_public_ingress_level0():
                 req_day = st.date_input("Día Requerido", value=default_day, min_value=today, key="guest_day")
                 req_time = st.time_input("Hora Requerida", value=dt_time(9, 0), key="guest_time")
                 
-            notes = st.text_area("Notas", placeholder="Observaciones...", key="guest_notes")
+            notes = st.text_area("Notes", placeholder="Observations...", key="guest_notes")
         
-        urgent = st.checkbox("🚨 Marcar como URGENTE")
+        urgent = st.checkbox("🚨 Mark as URGENT")
 
-        if st.form_submit_button("💾 Guardar Vehículo", use_container_width=True, type="primary"):
+        if st.form_submit_button("💾Save Vehicle", use_container_width=True, type="primary"):
             # Validaciones (igual que en page_ingress)
             req_type = SERVICE_FIELD_REQUIREMENTS.get(service, "both")
             if req_type == "both" and (not vin.strip() or not tag.strip()):
@@ -942,13 +942,13 @@ def page_public_ingress_level0():
                     responsible_name.strip()
                 ))
             
-            st.success("✅ Vehículo registrado correctamente en " + st.session_state.guest_branch_name)
+            st.success("✅ Vehicle correctly registered in " + st.session_state.guest_branch_name)
             st.rerun()
 
     # Botón para cambiar de agencia o salir
     col_a, col_b = st.columns(2)
     with col_a:
-        if st.button("🔄 Cambiar de Agencia"):
+        if st.button("🔄 Change Agency"):
             if 'guest_branch_id' in st.session_state:
                 del st.session_state.guest_branch_id
             if 'guest_branch_name' in st.session_state:
@@ -956,7 +956,7 @@ def page_public_ingress_level0():
             st.rerun()
     
     with col_b:
-        if st.button("👤 Ir a Login Normal"):
+        if st.button("👤Go to Normal Login"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
