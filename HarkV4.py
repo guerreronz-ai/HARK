@@ -8,7 +8,7 @@ import hashlib
 from contextlib import contextmanager
 from io import BytesIO
 import os
-import time
+import time  # ✅ AGREGADO: Para el timeout de sesión
 
 # ==================== CONFIGURACIÓN VISUAL PROFESIONAL ====================
 st.set_page_config(
@@ -18,27 +18,20 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ==================== CSS Profesional - MODO CLARO ====================
+# ==================== CSS Profesional ====================
 st.markdown("""
 <style>
-/* Fondo general suave */
 .stApp {
     background-color: #f4f6f9 !important;
 }
-
-/* Títulos oscuros para contraste */
 h1, h2, h3 {
     color: #1e293b !important;
     font-weight: 700;
 }
-
-/* Sidebar blanca y limpia */
 .sidebar .sidebar-content {
     background-color: #ffffff !important;
     border-right: 1px solid #e2e8f0 !important;
 }
-
-/* Botones modernos azules */
 .stButton>button {
     background: linear-gradient(90deg, #2563eb, #1d4ed8) !important;
     color: white !important;
@@ -50,16 +43,12 @@ h1, h2, h3 {
 .stButton>button:hover {
     background: linear-gradient(90deg, #1d4ed8, #1e40af) !important;
 }
-
-/* Expanders (Cajas desplegables) */
 .stExpander {
     background-color: #ffffff !important;
     border: 1px solid #e2e8f0 !important;
     border-radius: 10px !important;
     box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
-
-/* Inputs y Selects */
 .stTextInput input, 
 .stSelectbox select, 
 .stTextArea textarea {
@@ -104,7 +93,6 @@ def get_db():
         )
         conn.autocommit = False
 
-        # ✅ CONFIGURAR ZONA HORARIA (DALLAS, TX)
         with conn.cursor() as temp_cursor:
             temp_cursor.execute("SET TIME ZONE 'America/Chicago'")
 
@@ -124,7 +112,6 @@ def init_database():
     with get_db() as conn:
         c = conn.cursor()
         
-        # 1. Crear tablas si no existen
         c.execute('''CREATE TABLE IF NOT EXISTS branches (
             id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, active INTEGER DEFAULT 1
         )''')
@@ -134,14 +121,12 @@ def init_database():
             level INTEGER NOT NULL, full_name TEXT, branch_id INTEGER REFERENCES branches(id)
         )''')
         
-        # NUEVA: Tabla para preferencias de usuario (columnas, etc.)
         c.execute('''CREATE TABLE IF NOT EXISTS user_preferences (
             id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
             preference_key TEXT NOT NULL, preference_value TEXT,
             UNIQUE(user_id, preference_key)
         )''')
         
-        # ACTUALIZADA: Se eliminan NOT NULL para permitir VIN/TAG/Fechas opcionales
         c.execute('''CREATE TABLE IF NOT EXISTS vehicles (
             id SERIAL PRIMARY KEY, vin_number TEXT, tag_number TEXT,
             marca TEXT, modelo TEXT, required_day TEXT, required_time TEXT,
@@ -150,21 +135,18 @@ def init_database():
             is_urgent INTEGER DEFAULT 0, branch_id INTEGER REFERENCES branches(id)
         )''')
 
-        # 🛠️ MIGRACIÓN: Si la tabla ya existe, elimina las restricciones antiguas
         try:
             c.execute("ALTER TABLE vehicles ALTER COLUMN tag_number DROP NOT NULL")
             c.execute("ALTER TABLE vehicles ALTER COLUMN required_day DROP NOT NULL")
             c.execute("ALTER TABLE vehicles ALTER COLUMN required_time DROP NOT NULL")
             conn.commit()
         except Exception:
-            pass  # Ya están actualizadas
+            pass
 
-        # 2. Insertar Agencias por defecto si no existen
         c.execute("SELECT COUNT(*) as total FROM branches")
         if c.fetchone()['total'] == 0:
             c.execute("INSERT INTO branches (name) VALUES ('North Agency'), ('South Agency'), ('Central Agency')")
 
-        # 3. Insertar Usuarios por defecto si no existen
         c.execute("SELECT COUNT(*) as total FROM users")
         if c.fetchone()['total'] == 0:
             c.execute("SELECT id, name FROM branches")
@@ -195,7 +177,6 @@ SERVICES_LIST = [
     "Zaktek", "Show Room", "Full Detail for line", "Sold use car", "Sold new car"
 ]
 
-# ==================== CONFIGURACIÓN DE CAMPOS POR SERVICIO ====================
 SERVICE_FIELD_REQUIREMENTS = {
     "Service Wash": "tag",
     "Loaner": "tag",
@@ -203,12 +184,12 @@ SERVICE_FIELD_REQUIREMENTS = {
     "Full Detail the customer": "tag",
     "Zaktek": "both",
     "Show Room": "vin",
-    "Full Detail for line": "vin",  
+    "Full Detail for line": "vin",
     "Sold use car": "vin",
     "Sold new car": "vin"
 }
 
-# ==================== FUNCIONES DE PREFERENCIAS (Para columnas) ====================
+# ==================== FUNCIONES AUXILIARES ====================
 def get_user_preference(user_id, key, default=None):
     with get_db() as conn:
         c = conn.cursor()
@@ -226,14 +207,12 @@ def save_user_preference(user_id, key, value_list):
         """, (user_id, key, ",".join(value_list)))
         conn.commit()
 
-# ==================== FUNCIÓN DE ESTADO/COLORES ====================
 def get_status_info(service, reception_str, req_day_str, req_time_str):
     try:
         service_clean = service.strip() if service else ""
         dallas_tz = ZoneInfo("America/Chicago")
         now_dallas = datetime.now(dallas_tz)
         
-        # Parsear reception_date (manejar diferentes formatos y NULL)
         if not reception_str:
             return "#6c757d", "⚠️ No Date", "-"
         
@@ -243,10 +222,8 @@ def get_status_info(service, reception_str, req_day_str, req_time_str):
         except Exception:
             return "#6c757d", "⚠️ Invalid Date", "-"
         
-        # Si es "Full Detail for line", no requiere day/time
         if service_clean == "Full Detail for line":
             hours_since_reception = (now_dallas - rec_date).total_seconds() / 3600
-            
             if hours_since_reception < 24:
                 return "#28a745", "✅ On Time", f"{hours_since_reception:.1f}h since reception"
             elif hours_since_reception < 48:
@@ -254,7 +231,6 @@ def get_status_info(service, reception_str, req_day_str, req_time_str):
             else:
                 return "#dc3545", "🚨 Delayed", f"{hours_since_reception:.1f}h since reception"
         
-        # Para otros servicios que requieren day/time
         if not req_day_str or not req_time_str:
             return "#6c757d", "⚠️ No Deadline", "-"
         
@@ -267,7 +243,6 @@ def get_status_info(service, reception_str, req_day_str, req_time_str):
         hours_since_reception = (now_dallas - rec_date).total_seconds() / 3600
         hours_until_deadline = (req_date - now_dallas).total_seconds() / 3600
         
-        # === FULL DETAIL THE CUSTOMER, ZAKTEK, SOLD NEW CAR, SOLD USE CAR ===
         if service_clean in ["Full Detail the customer", "Zaktek", "Sold new car", "Sold use car"]:
             if hours_until_deadline > 2.0:
                 return "#28a745", "✅ Ample Time", f"{hours_until_deadline:.1f}h until deadline"
@@ -275,8 +250,6 @@ def get_status_info(service, reception_str, req_day_str, req_time_str):
                 return "#ffc107", "⚠️ Medium Time", f"{hours_until_deadline:.1f}h until deadline"
             else:
                 return "#dc3545", "🚨 Critical", f"{hours_until_deadline:.1f}h until deadline"
-        
-        # Servicios restantes (Service Wash, Loaner, Photo, Show Room)
         else:
             if hours_since_reception < 24:
                 return "#28a745", "✅ On Time", f"{hours_since_reception:.1f}h since reception"
@@ -310,24 +283,23 @@ def login_page():
                 """, (username, hashed))
                 
                 user = c.fetchone()
-            
-            # ✅ IMPORTANTE: Esta validación debe ir DENTRO del bloque del botón
-            if user:
-                st.session_state.update({
-                    "logged_in": True,
-                    "login_timestamp": time.time(),  # ⏰ Guarda la hora del login
-                    "user_id": user['id'],
-                    "username": user['username'],
-                    "level": user['level'],
-                    "branch_id": user['branch_id'],
-                    "branch_name": user['branch_name'],
-                    "full_name": user['full_name']
-                })
-                st.success(f"✅ Welcome, {user['full_name']}")
-                st.rerun()
-            else:
-                st.error("❌ Invalid credentials")
-        
+                
+                if user:
+                    st.session_state.update({
+                        "logged_in": True,
+                        "login_timestamp": time.time(),  # ✅ Guardamos la hora del login
+                        "user_id": user['id'],
+                        "username": user['username'],
+                        "level": user['level'],
+                        "branch_id": user['branch_id'],
+                        "branch_name": user['branch_name'],
+                        "full_name": user['full_name']
+                    })
+                    st.success(f"✅ Welcome, {user['full_name']}")
+                    st.rerun()
+                else:
+                    st.error("❌ Invalid credentials")
+
 def page_ingress():
     st.markdown("<h2>🚦 Vehicle Ingress</h2>", unsafe_allow_html=True)
     st.info(f"📍 Agency: **{st.session_state.branch_name}** | 👤 {st.session_state.full_name}")
@@ -354,7 +326,6 @@ def page_ingress():
             today = datetime.now().date()
             default_day = today if datetime.now().hour < 20 else today + timedelta(days=1)
             
-            # Ocultar fecha/hora solo para Full Detail for line
             if service == "Full Detail for line":
                 req_day = None
                 req_time = None
@@ -368,7 +339,6 @@ def page_ingress():
         urgent = st.checkbox("🚨 Mark as URGENT (Maximum Priority)")
         
         if st.form_submit_button("💾 Save Vehicle", use_container_width=True, type="primary"):
-            # Validación dinámica según servicio
             if req_type == "both":
                 if not vin.strip() or not tag.strip():
                     st.error("❌ This service requires both VIN and TAG")
@@ -382,11 +352,9 @@ def page_ingress():
                     st.error("❌ This service requires a TAG Number")
                     st.stop()
             
-            # ✅ OBTENER HORA DE DALLAS (NO UTC)
             dallas_tz = ZoneInfo("America/Chicago")
             dallas_now = datetime.now(dallas_tz).strftime("%Y-%m-%d %H:%M")
             
-            # Verificar duplicados según campo requerido
             check_val = (vin if req_type in ["vin", "both"] else tag).strip().upper()
             check_col = "vin_number" if req_type in ["vin", "both"] else "tag_number"
             
@@ -417,7 +385,7 @@ def page_ingress():
                     notes.strip(),
                     1 if urgent else 0,
                     st.session_state.branch_id,
-                    dallas_now,  # ✅ Hora de Dallas, NO UTC
+                    dallas_now,
                     'Pending',
                     responsible_name.strip()
                 ))
@@ -514,7 +482,7 @@ def page_pending():
                     "Required Time": v['required_time'] or "-",
                     "Received": v['reception_date'],
                     "Time Info": info,
-                    "Urgent": "🚨" if v['is_urgent'] else "",
+                    "Urgent": "🚨" if v['is_urgent'] else " ",
                     "_id": v['id'],
                     "_color": color
                 })
@@ -573,15 +541,14 @@ def page_pending():
                     
                     st.success(f"✅ {count} vehicle(s) finished correctly.")
                     st.rerun()
+
 def page_reports():
-    # 🔒 Verificar que el usuario esté logueado y tenga nivel
     if 'logged_in' not in st.session_state or 'level' not in st.session_state:
         st.error("🚫 Session expired. Please login again.")
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
     
-    # 🔒 Restricción de acceso - Solo niveles 2 y 3
     if st.session_state.level < 2:
         st.error("🚫 You do not have permissions to access Reports.")
         st.info("This section is available only for Supervisors and Administrators.")
@@ -703,70 +670,69 @@ def page_reports():
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    # ==========================================
-    # 🔁 REVERTIR ENTREGAS (Solo Nivel >= 2) - ÚLTIMAS 24 HORAS
-    # ==========================================
-    st.divider()
-    st.subheader("↩️ Reverting Deliveries (Last 24 Hours)")
-    st.caption("⚠️ This action will return the vehicle to 'Pending' and clear the delivery date.")
+    if st.session_state.level >= 2:
+        st.divider()
+        st.subheader("↩️ Reverting Deliveries (Error Correction)")
+        st.caption("⚠️ This action will return the vehicle to 'Pending' and clear the delivery date.")
 
-    rev_query = """
-        SELECT v.id, v.tag_number, v.vin_number, v.marca, v.modelo, v.service, 
-               v.delivery_date, v.handled_by, b.name as agency
-        FROM vehicles v
-        LEFT JOIN branches b ON v.branch_id = b.id
-        WHERE v.status = 'Delivered'
-          AND v.delivery_date::timestamp >= CURRENT_TIMESTAMP - INTERVAL '24 HOURS'
-    """
-    rev_params = []
+        rev_query = """
+            SELECT v.id, v.tag_number, v.vin_number, v.marca, v.modelo, v.service, 
+                   v.delivery_date, v.handled_by, b.name as agency
+            FROM vehicles v
+            LEFT JOIN branches b ON v.branch_id = b.id
+            WHERE v.status = 'Delivered'
+        """
+        rev_conditions = []
+        rev_params = []
 
-    # Si es supervisor, solo muestra entregas de su sucursal
-    if st.session_state.level == 2:
-        rev_query += " AND v.branch_id = %s"
-        rev_params.append(st.session_state.branch_id)
-    
-    # Ordenamos por fecha descendente
-    rev_query += " ORDER BY v.delivery_date DESC"
+        if st.session_state.level == 2:
+            rev_conditions.append("v.branch_id = %s")
+            rev_params.append(st.session_state.branch_id)
 
-    with get_db() as conn:
-        c = conn.cursor()
-        c.execute(rev_query, rev_params)
-        delivered_list = c.fetchall()
-
-    if delivered_list:
-        rev_df = pd.DataFrame(delivered_list)
-        display_df = rev_df[['tag_number', 'marca', 'modelo', 'service', 'agency', 'handled_by', 'delivery_date']]
-        st.dataframe(display_df, hide_index=True, use_container_width=True)
-
-        vehicle_options = {
-            f"{v['tag_number']} | {v['marca']} {v['modelo']} (Delivered: {v['delivery_date']})": v['id'] 
-            for v in delivered_list
-        }
-        selected_vehicle = st.selectbox("📍 Select the vehicle to reverse:", list(vehicle_options.keys()), index=None)
+        if rev_conditions:
+            rev_query += " WHERE " + " AND ".join(rev_conditions)
         
-        confirm_revert = st.checkbox("✅ I confirm that I wish to revert this delivery to Pending")
+        rev_query += " ORDER BY v.delivery_date DESC LIMIT 100"
 
-        if st.button("🔄 Reverse Vehicle", type="secondary", disabled=not (selected_vehicle and confirm_revert)):
-            vid = vehicle_options[selected_vehicle]
-            with get_db() as conn2:
-                c2 = conn2.cursor()
-                c2.execute("""
-                    UPDATE vehicles 
-                    SET status = 'Pending', 
-                        delivery_date = NULL, 
-                        handled_by = NULL 
-                    WHERE id = %s AND status = 'Delivered'
-                """, (vid,))
-            st.success(f"✅ Vehicle successfully reverted to state 'Pending'.")
-            st.rerun()
-    else:
-        st.info("📭 There are no delivered vehicles in the last 24 hours to reverse.")
+        with get_db() as conn:
+            c = conn.cursor()
+            c.execute(rev_query, rev_params)
+            delivered_list = c.fetchall()
+
+        if delivered_list:
+            rev_df = pd.DataFrame(delivered_list)
+            display_df = rev_df[['tag_number', 'marca', 'modelo', 'service', 'agency', 'handled_by', 'delivery_date']]
+            st.dataframe(display_df, hide_index=True, use_container_width=True)
+
+            vehicle_options = {
+                f"{v['tag_number']} | {v['marca']} {v['modelo']} (Delivered: {v['delivery_date']})": v['id'] 
+                for v in delivered_list
+            }
+            selected_vehicle = st.selectbox("📍 Select the vehicle to reverse:", list(vehicle_options.keys()), index=None)
             
+            confirm_revert = st.checkbox("✅ I confirm that I wish to revert this submission to Pending")
+
+            if st.button("🔄 Reverse Vehicle", type="secondary", disabled=not (selected_vehicle and confirm_revert)):
+                vid = vehicle_options[selected_vehicle]
+                with get_db() as conn2:
+                    c2 = conn2.cursor()
+                    c2.execute("""
+                        UPDATE vehicles 
+                        SET status = 'Pending', 
+                            delivery_date = NULL, 
+                            handled_by = NULL 
+                        WHERE id = %s AND status = 'Delivered'
+                    """, (vid,))
+                st.success(f"✅ Vehicle successfully reverted to state 'Pending'.")
+                st.rerun()
+        else:
+            st.info("📭 There are no recently delivered vehicles to reverse.")
+
 def page_users():
     st.markdown("<h2>👤 User Management</h2>", unsafe_allow_html=True)
     
     if st.session_state.level != 3:
-        st.warning("🔒 Access denied. Only Administrators can manage users..")
+        st.warning("🔒 Access denied. Only Administrators can manage users.")
         return
 
     with st.expander("➕ Add New User", expanded=False):
@@ -786,7 +752,7 @@ def page_users():
                     branch_opts = {b['name']: b['id'] for b in branches}
                 selected_branch = st.selectbox("Assign Agency", list(branch_opts.keys()))
 
-            if st.form_submit_button("💾 Crear Usuario", use_container_width=True, type="primary"):
+            if st.form_submit_button("💾 Create User", use_container_width=True, type="primary"):
                 if not new_username or not new_pass or not new_fullname:
                     st.error("❌ All fields are required.")
                 else:
@@ -844,11 +810,11 @@ def page_users():
                     st.success(f"✅ Updated password for {selected_user}")
                     st.rerun()
                 else:
-                    st.error("❌Enter a password")
+                    st.error("❌ Enter a password")
         
         with col2:
             st.markdown("### 🗑️ Delete User")
-            delete_list = {f"{u['username']} - {u['full_name']} (Nivel {u['level']})": u['id'] for u in users_data if u['id'] != st.session_state.user_id}
+            delete_list = {f"{u['username']} - {u['full_name']} (Level {u['level']})": u['id'] for u in users_data if u['id'] != st.session_state.user_id}
             
             if delete_list:
                 selected_delete = st.selectbox("Select User to Delete", list(delete_list.keys()))
@@ -859,7 +825,7 @@ def page_users():
                     with get_db() as conn:
                         c = conn.cursor()
                         c.execute("DELETE FROM users WHERE id = %s", (user_id,))
-                    st.success(f"✅ User {selected_delete} Delete")
+                    st.success(f"✅ User {selected_delete} Deleted")
                     st.rerun()
             else:
                 st.info("ℹ️ There are no other users to delete.")
@@ -872,22 +838,17 @@ def main():
 
     # 🕒 LÓGICA DE TIMEOUT: 5 HORAS PARA NIVEL 1
     if 'logged_in' in st.session_state and st.session_state.level == 1:
-        # Si no existe la marca de tiempo, la creamos
         if 'login_timestamp' not in st.session_state:
             st.session_state.login_timestamp = time.time()
             
-        # 5 horas = 5 * 60 min * 60 seg = 18,000 segundos
-        five_hours_seconds = 5 * 60 * 60
+        five_hours_seconds = 5 * 60 * 60  # 18,000 segundos
         
-        # Verificamos si ya pasaron las 5 horas
         if time.time() - st.session_state.login_timestamp > five_hours_seconds:
             st.error("⏰ Session expired (5 hours limit). Please login again.")
-            # Limpiamos todo
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
 
-    # --- SI NO ESTÁ LOGUEADO O NO ES NIVEL 1, CONTINÚA ---
     if 'logged_in' not in st.session_state:
         login_page()
     else:
@@ -920,6 +881,6 @@ def main():
         elif menu == "🏎️ Pending": page_pending()
         elif menu == "📊 Reports": page_reports()
         elif menu == "👤 Users": page_users()
-            
-if __name__ == "__main__":
+
+if __name__ == "__main__":  # ✅ CORREGIDO: Doble guion bajo
     main()
