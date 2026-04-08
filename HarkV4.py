@@ -687,12 +687,13 @@ def page_reports():
         st.caption("⚠️ This action will return the vehicle to 'Pending' and clear the delivery date.")
 
         rev_query = """
-            SELECT v.id, v.tag_number, v.vin_number, v.marca, v.modelo, v.service, 
-                   v.delivery_date, v.handled_by, b.name as agency
-            FROM vehicles v
-            LEFT JOIN branches b ON v.branch_id = b.id
-            WHERE v.status = 'Delivered'
-        """
+    SELECT v.id, v.tag_number, v.vin_number, v.marca, v.modelo, v.service, 
+           v.delivery_date, v.handled_by, b.name as agency
+    FROM vehicles v
+    LEFT JOIN branches b ON v.branch_id = b.id
+    WHERE v.status = 'Delivered'
+      AND v.delivery_date::timestamp >= NOW() - INTERVAL '24 hours'
+"""
         rev_conditions = []
         rev_params = []
 
